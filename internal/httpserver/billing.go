@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/apikey"
-	"github.com/goodtekxyz/openllms/internal/authn"
-	"github.com/goodtekxyz/openllms/internal/billing"
-	"github.com/goodtekxyz/openllms/internal/store"
+	"github.com/goodtek-xyz/openllms/internal/apikey"
+	"github.com/goodtek-xyz/openllms/internal/authn"
+	"github.com/goodtek-xyz/openllms/internal/billing"
+	"github.com/goodtek-xyz/openllms/internal/store"
 	"github.com/google/uuid"
 )
 

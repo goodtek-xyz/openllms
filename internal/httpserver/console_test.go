@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/goodtekxyz/openllms/internal/userauth"
+	"github.com/goodtek-xyz/openllms/internal/userauth"
 )
 
 func TestConsolePageRedirectsToInstall(t *testing.T) {

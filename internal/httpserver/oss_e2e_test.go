@@ -10,11 +10,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/goodtekxyz/openllms/internal/config"
-	"github.com/goodtekxyz/openllms/internal/db"
-	"github.com/goodtekxyz/openllms/internal/httpserver"
-	"github.com/goodtekxyz/openllms/internal/secrets/file"
-	"github.com/goodtekxyz/openllms/internal/store"
+	"github.com/goodtek-xyz/openllms/internal/config"
+	"github.com/goodtek-xyz/openllms/internal/db"
+	"github.com/goodtek-xyz/openllms/internal/httpserver"
+	"github.com/goodtek-xyz/openllms/internal/secrets/file"
+	"github.com/goodtek-xyz/openllms/internal/store"
 )
 
 // TestOSSE2E_SQLiteFileSecrets_MockUpstream exercises the OSS happy path:

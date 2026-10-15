@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/goodtekxyz/openllms/internal/secrets"
-	"github.com/goodtekxyz/openllms/internal/store"
-	"github.com/goodtekxyz/openllms/internal/vendor"
-	"github.com/goodtekxyz/openllms/internal/vendorauth"
+	"github.com/goodtek-xyz/openllms/internal/secrets"
+	"github.com/goodtek-xyz/openllms/internal/store"
+	"github.com/goodtek-xyz/openllms/internal/vendor"
+	"github.com/goodtek-xyz/openllms/internal/vendorauth"
 	"github.com/google/uuid"
 )
 

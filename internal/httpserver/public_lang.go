@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/goodtekxyz/openllms/internal/billing"
+	"github.com/goodtek-xyz/openllms/internal/billing"
 )
 
 const publicLangCookie = "llms_lang"

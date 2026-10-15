@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/goodtekxyz/openllms/internal/secrets"
+	"github.com/goodtek-xyz/openllms/internal/secrets"
 )
 
 // Infisical path for gateway ops secrets (not customer account credentials).

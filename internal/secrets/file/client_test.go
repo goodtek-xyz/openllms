@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/goodtekxyz/openllms/internal/secrets/file"
+	"github.com/goodtek-xyz/openllms/internal/secrets/file"
 )
 
 func TestPutGetDelete(t *testing.T) {

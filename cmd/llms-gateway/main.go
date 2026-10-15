@@ -13,12 +13,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/backoff"
-	"github.com/goodtekxyz/openllms/internal/config"
-	"github.com/goodtekxyz/openllms/internal/db"
-	"github.com/goodtekxyz/openllms/internal/health"
-	"github.com/goodtekxyz/openllms/internal/httpserver"
-	"github.com/goodtekxyz/openllms/internal/store"
+	"github.com/goodtek-xyz/openllms/internal/backoff"
+	"github.com/goodtek-xyz/openllms/internal/config"
+	"github.com/goodtek-xyz/openllms/internal/db"
+	"github.com/goodtek-xyz/openllms/internal/health"
+	"github.com/goodtek-xyz/openllms/internal/httpserver"
+	"github.com/goodtek-xyz/openllms/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

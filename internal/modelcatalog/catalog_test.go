@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/modelcatalog"
-	"github.com/goodtekxyz/openllms/internal/secrets/memory"
-	"github.com/goodtekxyz/openllms/internal/store"
-	"github.com/goodtekxyz/openllms/internal/vendorauth"
+	"github.com/goodtek-xyz/openllms/internal/modelcatalog"
+	"github.com/goodtek-xyz/openllms/internal/secrets/memory"
+	"github.com/goodtek-xyz/openllms/internal/store"
+	"github.com/goodtek-xyz/openllms/internal/vendorauth"
 	"github.com/google/uuid"
 )
 

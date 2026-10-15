@@ -3,7 +3,7 @@ package apikey_test
 import (
 	"testing"
 
-	"github.com/goodtekxyz/openllms/internal/apikey"
+	"github.com/goodtek-xyz/openllms/internal/apikey"
 )
 
 func TestGenerateAndVerify(t *testing.T) {

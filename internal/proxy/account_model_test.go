@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/goodtekxyz/openllms/internal/proxy"
-	"github.com/goodtekxyz/openllms/internal/store"
+	"github.com/goodtek-xyz/openllms/internal/proxy"
+	"github.com/goodtek-xyz/openllms/internal/store"
 )
 
 func TestResolveOutboundModelAccountDefault(t *testing.T) {

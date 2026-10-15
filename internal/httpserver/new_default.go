@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/config"
-	"github.com/goodtekxyz/openllms/internal/modelcatalog"
-	"github.com/goodtekxyz/openllms/internal/proxy"
-	"github.com/goodtekxyz/openllms/internal/ratelimit"
-	"github.com/goodtekxyz/openllms/internal/secrets"
-	"github.com/goodtekxyz/openllms/internal/store"
-	"github.com/goodtekxyz/openllms/internal/userauth"
+	"github.com/goodtek-xyz/openllms/internal/config"
+	"github.com/goodtek-xyz/openllms/internal/modelcatalog"
+	"github.com/goodtek-xyz/openllms/internal/proxy"
+	"github.com/goodtek-xyz/openllms/internal/ratelimit"
+	"github.com/goodtek-xyz/openllms/internal/secrets"
+	"github.com/goodtek-xyz/openllms/internal/store"
+	"github.com/goodtek-xyz/openllms/internal/userauth"
 )
 
 // New constructs the OSS gateway server (no Cloud overlay).

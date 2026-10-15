@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/goodtekxyz/openllms/internal/config"
-	"github.com/goodtekxyz/openllms/internal/githubauth"
+	"github.com/goodtek-xyz/openllms/internal/config"
+	"github.com/goodtek-xyz/openllms/internal/githubauth"
 )
 
 const (

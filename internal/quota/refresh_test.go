@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/goodtekxyz/openllms/internal/secrets"
-	"github.com/goodtekxyz/openllms/internal/secrets/memory"
-	"github.com/goodtekxyz/openllms/internal/vendor"
+	"github.com/goodtek-xyz/openllms/internal/secrets"
+	"github.com/goodtek-xyz/openllms/internal/secrets/memory"
+	"github.com/goodtek-xyz/openllms/internal/vendor"
 	"github.com/google/uuid"
 )
 

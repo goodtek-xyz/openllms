@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/goodtekxyz/openllms/internal/config"
+	"github.com/goodtek-xyz/openllms/internal/config"
 )
 
 func TestPublicGAInjection(t *testing.T) {

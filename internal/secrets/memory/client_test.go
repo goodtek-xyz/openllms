@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/goodtekxyz/openllms/internal/secrets/memory"
+	"github.com/goodtek-xyz/openllms/internal/secrets/memory"
 )
 
 func TestPutGetDelete(t *testing.T) {

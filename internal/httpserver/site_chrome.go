@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/goodtekxyz/openllms/internal/billing"
+	"github.com/goodtek-xyz/openllms/internal/billing"
 )
 
 const (

@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/goodtekxyz/openllms/internal/userauth"
+	"github.com/goodtek-xyz/openllms/internal/userauth"
 )
 
 func TestUserSessionIssueAndRead(t *testing.T) {

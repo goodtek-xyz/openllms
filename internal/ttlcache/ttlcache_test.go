@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/ttlcache"
+	"github.com/goodtek-xyz/openllms/internal/ttlcache"
 )
 
 func TestCacheHitMissExpire(t *testing.T) {

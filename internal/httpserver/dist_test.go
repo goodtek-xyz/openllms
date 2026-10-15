@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/goodtekxyz/openllms/internal/config"
+	"github.com/goodtek-xyz/openllms/internal/config"
 )
 
 func TestPublicDistDisabled(t *testing.T) {

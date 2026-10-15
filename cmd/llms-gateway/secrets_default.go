@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/goodtekxyz/openllms/internal/config"
-	"github.com/goodtekxyz/openllms/internal/secrets"
-	"github.com/goodtekxyz/openllms/internal/secrets/file"
+	"github.com/goodtek-xyz/openllms/internal/config"
+	"github.com/goodtek-xyz/openllms/internal/secrets"
+	"github.com/goodtek-xyz/openllms/internal/secrets/file"
 )
 
 // openSecrets always uses the local file vault (OSS / self-host build).

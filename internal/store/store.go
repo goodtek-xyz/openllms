@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/apikey"
-	"github.com/goodtekxyz/openllms/internal/ttlcache"
+	"github.com/goodtek-xyz/openllms/internal/apikey"
+	"github.com/goodtek-xyz/openllms/internal/ttlcache"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

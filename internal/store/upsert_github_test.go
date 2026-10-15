@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/goodtekxyz/openllms/internal/db"
-	"github.com/goodtekxyz/openllms/internal/store"
+	"github.com/goodtek-xyz/openllms/internal/db"
+	"github.com/goodtek-xyz/openllms/internal/store"
 )
 
 func TestUpsertGitHubUserKeepsCLIKeyOnRelogin(t *testing.T) {

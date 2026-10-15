@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/goodtekxyz/openllms/internal/config"
-	"github.com/goodtekxyz/openllms/internal/httpserver"
-	"github.com/goodtekxyz/openllms/internal/store"
+	"github.com/goodtek-xyz/openllms/internal/config"
+	"github.com/goodtek-xyz/openllms/internal/httpserver"
+	"github.com/goodtek-xyz/openllms/internal/store"
 )
 
 func serve(t *testing.T, h http.Handler, method, path string) (int, map[string]any) {

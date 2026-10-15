@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/ratelimit"
+	"github.com/goodtek-xyz/openllms/internal/ratelimit"
 )
 
 func TestAllow(t *testing.T) {

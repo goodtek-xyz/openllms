@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/goodtekxyz/openllms/internal/apikey"
-	"github.com/goodtekxyz/openllms/internal/store"
+	"github.com/goodtek-xyz/openllms/internal/apikey"
+	"github.com/goodtek-xyz/openllms/internal/store"
 )
 
 type ctxKey int

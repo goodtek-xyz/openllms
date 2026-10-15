@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/apikey"
+	"github.com/goodtek-xyz/openllms/internal/apikey"
 	"github.com/google/uuid"
 )
 

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/db"
+	"github.com/goodtek-xyz/openllms/internal/db"
 	"github.com/google/uuid"
 )
 

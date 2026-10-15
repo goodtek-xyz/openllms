@@ -13,10 +13,10 @@ import (
 	"time"
 
 	"github.com/charmbracelet/huh"
-	"github.com/goodtekxyz/openllms/internal/githubauth"
-	"github.com/goodtekxyz/openllms/internal/router"
-	"github.com/goodtekxyz/openllms/internal/vendor"
-	"github.com/goodtekxyz/openllms/internal/vendorauth"
+	"github.com/goodtek-xyz/openllms/internal/githubauth"
+	"github.com/goodtek-xyz/openllms/internal/router"
+	"github.com/goodtek-xyz/openllms/internal/vendor"
+	"github.com/goodtek-xyz/openllms/internal/vendorauth"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )

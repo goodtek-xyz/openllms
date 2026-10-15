@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/vendorauth"
+	"github.com/goodtek-xyz/openllms/internal/vendorauth"
 	"github.com/google/uuid"
 )
 

@@ -3,7 +3,7 @@ package store_test
 import (
 	"testing"
 
-	"github.com/goodtekxyz/openllms/internal/store"
+	"github.com/goodtek-xyz/openllms/internal/store"
 	"github.com/google/uuid"
 )
 

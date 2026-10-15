@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/billing"
+	"github.com/goodtek-xyz/openllms/internal/billing"
 	"github.com/google/uuid"
 )
 

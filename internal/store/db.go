@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/backoff"
+	"github.com/goodtek-xyz/openllms/internal/backoff"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"

@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/secrets"
-	"github.com/goodtekxyz/openllms/internal/store"
-	"github.com/goodtekxyz/openllms/internal/ttlcache"
-	"github.com/goodtekxyz/openllms/internal/vendor"
-	"github.com/goodtekxyz/openllms/internal/vendorauth"
+	"github.com/goodtek-xyz/openllms/internal/secrets"
+	"github.com/goodtek-xyz/openllms/internal/store"
+	"github.com/goodtek-xyz/openllms/internal/ttlcache"
+	"github.com/goodtek-xyz/openllms/internal/vendor"
+	"github.com/goodtek-xyz/openllms/internal/vendorauth"
 )
 
 const DefaultCacheTTL = 5 * time.Minute

@@ -3,7 +3,7 @@ package secrets_test
 import (
 	"testing"
 
-	"github.com/goodtekxyz/openllms/internal/secrets"
+	"github.com/goodtek-xyz/openllms/internal/secrets"
 )
 
 func TestBearerToken(t *testing.T) {

@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/goodtekxyz/openllms/internal/modelcatalog"
-	"github.com/goodtekxyz/openllms/internal/proxy"
-	"github.com/goodtekxyz/openllms/internal/quota"
-	routerpkg "github.com/goodtekxyz/openllms/internal/router"
-	"github.com/goodtekxyz/openllms/internal/vendor"
-	"github.com/goodtekxyz/openllms/internal/vendorauth"
+	"github.com/goodtek-xyz/openllms/internal/modelcatalog"
+	"github.com/goodtek-xyz/openllms/internal/proxy"
+	"github.com/goodtek-xyz/openllms/internal/quota"
+	routerpkg "github.com/goodtek-xyz/openllms/internal/router"
+	"github.com/goodtek-xyz/openllms/internal/vendor"
+	"github.com/goodtek-xyz/openllms/internal/vendorauth"
 	"github.com/google/uuid"
 )
 

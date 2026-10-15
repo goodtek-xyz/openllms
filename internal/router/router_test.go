@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/router"
-	"github.com/goodtekxyz/openllms/internal/store"
+	"github.com/goodtek-xyz/openllms/internal/router"
+	"github.com/goodtek-xyz/openllms/internal/store"
 	"github.com/google/uuid"
 )
 

@@ -3,7 +3,7 @@ package proxy_test
 import (
 	"context"
 	"encoding/json"
-	"github.com/goodtekxyz/openllms/internal/vendorauth"
+	"github.com/goodtek-xyz/openllms/internal/vendorauth"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goodtekxyz/openllms/internal/proxy"
-	"github.com/goodtekxyz/openllms/internal/router"
-	"github.com/goodtekxyz/openllms/internal/secrets"
-	"github.com/goodtekxyz/openllms/internal/secrets/memory"
-	"github.com/goodtekxyz/openllms/internal/store"
-	"github.com/goodtekxyz/openllms/internal/vendor"
+	"github.com/goodtek-xyz/openllms/internal/proxy"
+	"github.com/goodtek-xyz/openllms/internal/router"
+	"github.com/goodtek-xyz/openllms/internal/secrets"
+	"github.com/goodtek-xyz/openllms/internal/secrets/memory"
+	"github.com/goodtek-xyz/openllms/internal/store"
+	"github.com/goodtek-xyz/openllms/internal/vendor"
 	"github.com/google/uuid"
 )
 

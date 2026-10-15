@@ -1,4 +1,4 @@
-module github.com/goodtekxyz/openllms
+module github.com/goodtek-xyz/openllms
 
 go 1.24.0
 
