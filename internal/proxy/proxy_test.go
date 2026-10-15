@@ -676,9 +676,9 @@ func TestFailoverAttemptsRecorded(t *testing.T) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"id": "ok",
+			"id":      "ok",
 			"choices": []any{map[string]any{"message": map[string]string{"role": "assistant", "content": "hi"}}},
-			"usage": map[string]int{"prompt_tokens": 1, "completion_tokens": 1},
+			"usage":   map[string]int{"prompt_tokens": 1, "completion_tokens": 1},
 		})
 	}))
 	defer up.Close()
@@ -727,9 +727,9 @@ func TestDispatchFailoverOn401UsesNextAccountDefaultModel(t *testing.T) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"id": "ok",
+			"id":      "ok",
 			"choices": []any{map[string]any{"message": map[string]string{"role": "assistant", "content": "hi"}}},
-			"usage": map[string]int{"prompt_tokens": 1, "completion_tokens": 1},
+			"usage":   map[string]int{"prompt_tokens": 1, "completion_tokens": 1},
 		})
 	}))
 	defer up.Close()
@@ -772,7 +772,6 @@ func TestDispatchFailoverOn401UsesNextAccountDefaultModel(t *testing.T) {
 		t.Fatalf("expected next seat default model, saw=%v", sawModels)
 	}
 }
-
 
 // Reproduces the 2026-09-28 404: Claude seat with empty default_model on a
 // codex route (route default gpt-*) must be skipped, not sent gpt-5.6-luna.
@@ -879,5 +878,56 @@ func TestDispatchRevokedOAuthSeatLeavesRouting(t *testing.T) {
 	}
 	if _, ok := st.reauth[idDead]; !ok {
 		t.Fatal("revoked seat not flagged for re-link")
+	}
+}
+
+// Claude OAuth chat (bridged to Messages) carries the Claude Code wire: identity system block, User-Agent, x-app.
+// An API-key account and an API key linked as OAuth get none of it.
+func TestClaudeOAuthChatBridgeInjectsWire(t *testing.T) {
+	type seen struct {
+		body map[string]any
+		hdr  http.Header
+	}
+	var got seen
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = seen{hdr: r.Header.Clone()}
+		_ = json.NewDecoder(r.Body).Decode(&got.body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"pong"}],"usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer up.Close()
+	call := func(authType string, cred secrets.CredentialJSON) {
+		t.Helper()
+		sec := memory.New()
+		path := vendor.InfisicalPath(uuid.New().String(), "claude", authType)
+		_ = sec.Put(context.Background(), path, vendor.SecretName, mustJSON(cred))
+		acc := &store.Account{ID: uuid.New(), Vendor: "claude", AuthType: authType, InfisicalPath: path, BaseURL: up.URL}
+		eng := &proxy.Engine{Secrets: sec, HTTP: up.Client()}
+		res, err := eng.CallAccountForTest(context.Background(), acc, []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}]}`))
+		if err != nil || res.StatusCode != 200 {
+			t.Fatalf("%s: err=%v res=%+v", authType, err, res)
+		}
+	}
+	identity := func() string {
+		sys, _ := got.body["system"].([]any)
+		for _, b := range sys {
+			if m, _ := b.(map[string]any); m["text"] == "You are Claude Code, Anthropic's official CLI for Claude." {
+				return "identity"
+			}
+		}
+		return ""
+	}
+
+	call("oauth", secrets.CredentialJSON{AccessToken: "sk-ant-oat01-at"})
+	if identity() == "" || got.hdr.Get("x-app") != "cli" || !strings.HasPrefix(got.hdr.Get("User-Agent"), "claude-code/") {
+		t.Fatalf("oauth wire missing: system=%v headers=%v", got.body["system"], got.hdr)
+	}
+	call("api_key", secrets.CredentialJSON{APIKey: "sk-ant-api03-k"})
+	if identity() != "" || got.hdr.Get("x-app") != "" {
+		t.Fatalf("api_key account got the wire: system=%v headers=%v", got.body["system"], got.hdr)
+	}
+	call("oauth", secrets.CredentialJSON{AccessToken: "sk-ant-api03-k"})
+	if identity() != "" || got.hdr.Get("x-app") != "" || got.hdr.Get("x-api-key") != "sk-ant-api03-k" {
+		t.Fatalf("API key linked as OAuth got the wire: system=%v headers=%v", got.body["system"], got.hdr)
 	}
 }

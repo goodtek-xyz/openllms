@@ -3,6 +3,7 @@ package quota
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -19,7 +20,14 @@ type Refresher struct {
 	Store   *store.Store
 	Secrets secrets.Client
 	Log     *slog.Logger
+	// OnUsageAnswer, when set, hears the HTTP status of each usage call (the proxy engine treats a repeated 401 of a
+	// login without a refresh token like the same answer on the request path). hasRefreshToken: it can be renewed.
+	OnUsageAnswer func(ctx context.Context, a store.Account, status int, hasRefreshToken bool)
 }
+
+// errNoUsageEndpoint: the credential is not an OAuth access token (e.g. an API key), and the usage endpoints only
+// answer OAuth tokens. Not a failure; there is just no subscription quota to read.
+var errNoUsageEndpoint = errors.New("no oauth access token: no usage endpoint")
 
 // RefreshAllOAuth fetches Codex/Claude usage for every oauth account.
 func (r *Refresher) RefreshAllOAuth(ctx context.Context) (updated, failed int) {
@@ -35,8 +43,21 @@ func (r *Refresher) RefreshAllOAuth(ctx context.Context) (updated, failed int) {
 		log.Warn("list oauth accounts", "err", err)
 		return 0, 0
 	}
+	return r.refreshList(ctx, list, log)
+}
+
+// refreshList skips accounts waiting for a re-link (out of routing; their token is known dead) and credentials
+// without a usage endpoint, so neither is polled or logged every cycle.
+func (r *Refresher) refreshList(ctx context.Context, list []store.Account, log *slog.Logger) (updated, failed int) {
 	for _, a := range list {
+		if a.ReauthRequiredAt != nil {
+			continue
+		}
 		if err := r.refreshOne(ctx, a); err != nil {
+			if errors.Is(err, errNoUsageEndpoint) {
+				log.Debug("provider quota skipped", "vendor", a.Vendor, "name", a.Name, "reason", err)
+				continue
+			}
 			failed++
 			log.Warn("provider quota", "vendor", a.Vendor, "name", a.Name, "err", err)
 			continue
@@ -61,15 +82,7 @@ func (r *Refresher) RefreshProjectOAuth(ctx context.Context, projectID uuid.UUID
 		log.Warn("list project oauth accounts", "project_id", projectID, "err", err)
 		return 0, 0
 	}
-	for _, a := range list {
-		if err := r.refreshOne(ctx, a); err != nil {
-			failed++
-			log.Warn("provider quota", "vendor", a.Vendor, "name", a.Name, "err", err)
-			continue
-		}
-		updated++
-	}
-	return updated, failed
+	return r.refreshList(ctx, list, log)
 }
 
 func (r *Refresher) refreshOne(ctx context.Context, a store.Account) error {
@@ -81,12 +94,9 @@ func (r *Refresher) refreshOne(ctx context.Context, a store.Account) error {
 	if err := json.Unmarshal([]byte(raw), &cred); err != nil {
 		return err
 	}
-	tok := cred.AccessToken
-	if tok == "" {
-		tok = cred.APIKey
-	}
-	if tok == "" {
-		return fmt.Errorf("missing access_token")
+	tok := strings.TrimSpace(cred.AccessToken)
+	if tok == "" || vendor.IsAnthropicAPIKey(tok) {
+		return errNoUsageEndpoint
 	}
 	var snap Snapshot
 	switch strings.ToLower(a.Vendor) {
@@ -96,6 +106,15 @@ func (r *Refresher) refreshOne(ctx context.Context, a store.Account) error {
 		snap, err = FetchClaude(ctx, tok)
 	default:
 		return fmt.Errorf("no provider quota fetcher for vendor %s", a.Vendor)
+	}
+	if r.OnUsageAnswer != nil {
+		var ue *UsageError
+		switch {
+		case err == nil:
+			r.OnUsageAnswer(ctx, a, 200, strings.TrimSpace(cred.RefreshToken) != "")
+		case errors.As(err, &ue):
+			r.OnUsageAnswer(ctx, a, ue.Status, strings.TrimSpace(cred.RefreshToken) != "")
+		}
 	}
 	if err != nil {
 		return err

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/goodtek-xyz/openllms/internal/secrets"
 	"github.com/goodtek-xyz/openllms/internal/store"
@@ -29,10 +30,15 @@ type accountCreateInput struct {
 	vendorEmail string
 }
 
-// normalize fills the defaults the link path relies on (account name, auth type).
+// normalize fills the defaults the link path relies on (account name, auth type). An Anthropic API key posted as an
+// OAuth access token is stored as what it is, an API-key account.
 func (in *accountCreateInput) normalize() {
 	if in.Name == "" {
 		in.Name = "default"
+	}
+	if v := strings.ToLower(in.Vendor); (v == "claude" || v == "anthropic") && in.APIKey == "" && vendor.IsAnthropicAPIKey(in.AccessToken) {
+		in.APIKey, in.AccessToken, in.RefreshToken, in.ExpiresAt, in.IDToken = strings.TrimSpace(in.AccessToken), "", "", "", ""
+		in.AuthType = "api_key"
 	}
 	if in.AuthType == "" {
 		if in.AccessToken != "" {

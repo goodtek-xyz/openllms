@@ -112,6 +112,10 @@ export BOOTSTRAP_TOKEN=local-dev-bootstrap
 
 `./data/`는 커밋하지 마세요.
 
+Postgres로 돌리고 싶다면 `make dev-db`로 Docker에 `127.0.0.1:54329` Postgres를 띄웁니다(`deploy/dev/compose.yaml`).
+`./bin/llms-gateway` 전에 `export DATABASE_URL=postgres://llms:llms@127.0.0.1:54329/llms?sslmode=disable`을 설정하세요.
+끌 때는 `make dev-db-down`이고, 데이터는 Docker 볼륨에 남습니다. 로컬 개발용입니다.
+
 ---
 
 ## 2. 스모크 체크 (다른 작업 전에)

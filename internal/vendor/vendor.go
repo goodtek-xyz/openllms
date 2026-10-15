@@ -31,6 +31,13 @@ func DefaultBaseURLFor(vendor, authType string) string {
 	}
 }
 
+// IsAnthropicAPIKey reports an Anthropic Console API key (sk-ant-api…). It goes in x-api-key; OAuth access tokens
+// (sk-ant-oat…) go in Authorization: Bearer. Sending an API key as a bearer token gets 401 "x-api-key header is
+// required", and the OAuth usage endpoint has nothing for it.
+func IsAnthropicAPIKey(token string) bool {
+	return strings.HasPrefix(strings.TrimSpace(token), "sk-ant-api")
+}
+
 func InfisicalPath(projectID, vendor, name string) string {
 	return "/llms/" + projectID + "/accounts/" + vendor + "/" + name
 }

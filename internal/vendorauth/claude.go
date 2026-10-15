@@ -85,9 +85,10 @@ func ClaudeExchange(ctx context.Context, pasted, verifier, state string) (Tokens
 }
 
 // splitClaudeCode extracts code and optional state from a paste. Accepts:
-//   code#state
-//   code=...#state
-//   full callback URL with ?code=&state= (or # fragment)
+//
+//	code#state
+//	code=...#state
+//	full callback URL with ?code=&state= (or # fragment)
 func splitClaudeCode(pasted string) (code, state string) {
 	s := strings.TrimSpace(pasted)
 	if s == "" {

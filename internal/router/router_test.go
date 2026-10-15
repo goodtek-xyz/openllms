@@ -290,7 +290,6 @@ func TestResetSoonSkipsBelowMin(t *testing.T) {
 	}
 }
 
-
 func TestStewardPreset(t *testing.T) {
 	st, cfg := router.ApplyPreset("steward")
 	if st != router.Steward || cfg["preset"] != "steward" {

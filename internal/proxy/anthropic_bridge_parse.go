@@ -27,10 +27,10 @@ type anthropicParseState struct {
 
 func newAnthropicParseState(opts anthropicBridgeOpts, w io.Writer) *anthropicParseState {
 	st := &anthropicParseState{
-		accountID:     opts.accountID,
-		provider:      opts.provider,
-		model:         opts.model,
-		id:            opts.id,
+		accountID:      opts.accountID,
+		provider:       opts.provider,
+		model:          opts.model,
+		id:             opts.id,
 		pendingSearch:  map[string]map[string]any{},
 		blockStarts:    map[int]map[string]any{},
 		blockInputJSON: map[int]string{},

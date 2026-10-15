@@ -62,8 +62,8 @@ func (a *Affinity) Set(key string, accountID uuid.UUID) {
 // prompt_cache_key, then a hash of the first system + user text.
 func SessionKey(hdr http.Header, body []byte) string {
 	var peek struct {
-		SessionID      string          `json:"session_id"`
-		PromptCacheKey string          `json:"prompt_cache_key"`
+		SessionID      string `json:"session_id"`
+		PromptCacheKey string `json:"prompt_cache_key"`
 		LLMS           struct {
 			SessionKey string `json:"session_key"`
 		} `json:"llms"`

@@ -112,6 +112,10 @@ export BOOTSTRAP_TOKEN=local-dev-bootstrap
 
 Don’t commit `./data/`.
 
+Prefer Postgres? `make dev-db` starts one in Docker on `127.0.0.1:54329` (`deploy/dev/compose.yaml`); then
+`export DATABASE_URL=postgres://llms:llms@127.0.0.1:54329/llms?sslmode=disable` before `./bin/llms-gateway`.
+`make dev-db-down` stops it; the data stays in a Docker volume. For local development only.
+
 ---
 
 ## 2. Smoke check (before anything else)

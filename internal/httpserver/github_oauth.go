@@ -199,7 +199,6 @@ func randomHex(nBytes int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-
 func looksLikeLangBilling(path string) bool {
 	// /en/billing, /ja/billing, /zh/billing, /ko/billing
 	parts := strings.Split(strings.Trim(path, "/"), "/")

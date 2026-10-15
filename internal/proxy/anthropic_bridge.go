@@ -55,9 +55,9 @@ func chatToAnthropicMessages(chatBody []byte) (messagesBody []byte, clientStream
 			system.WriteString(text)
 		case "tool":
 			block := map[string]any{
-				"type":         "tool_result",
-				"tool_use_id":  strings.TrimSpace(m.ToolCallID),
-				"content":      flattenChatContent(m.Content),
+				"type":        "tool_result",
+				"tool_use_id": strings.TrimSpace(m.ToolCallID),
+				"content":     flattenChatContent(m.Content),
 			}
 			messages = appendAnthropicMessage(messages, "user", []map[string]any{block})
 		case "assistant":

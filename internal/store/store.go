@@ -1000,7 +1000,7 @@ func (s *Store) ListAdminRoutes(ctx context.Context) ([]map[string]any, error) {
 	defer rows.Close()
 
 	type routeMeta struct {
-		id, projectID uuid.UUID
+		id, projectID                       uuid.UUID
 		slug, strategy, defaultModel, login string
 	}
 	var metas []routeMeta
@@ -1124,7 +1124,6 @@ func (s *Store) RefreshQuotasFromUsage(ctx context.Context) (int, error) {
 	return int(tag.RowsAffected()), nil
 }
 
-
 func (s *Store) RefreshQuotasFromUsageForProject(ctx context.Context, projectID uuid.UUID) (int, error) {
 	now := time.Now().UTC()
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
@@ -1155,7 +1154,6 @@ func (s *Store) RefreshQuotasFromUsageForProject(ctx context.Context, projectID 
 	}
 	return int(tag.RowsAffected()), nil
 }
-
 
 func (s *Store) ListOAuthAccounts(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.Query(ctx, `
@@ -1222,7 +1220,6 @@ func (s *Store) SetAccountQuotaID(ctx context.Context, accountID uuid.UUID, rema
 	}
 	return nil
 }
-
 
 // SetAccountQuotaWindowsID persists tightest mirror + dual 5h/7d windows.
 func (s *Store) SetAccountQuotaWindowsID(ctx context.Context, accountID uuid.UUID, remainingPct *float64, resetAt *time.Time, rem5h *float64, reset5h *time.Time, rem7d *float64, reset7d *time.Time) error {
@@ -1317,8 +1314,8 @@ func (s *Store) refreshQuotasSQLite(ctx context.Context, monthStart time.Time, p
 	defer rows.Close()
 
 	type row struct {
-		id   uuid.UUID
-		cap  int64
+		id  uuid.UUID
+		cap int64
 	}
 	var list []row
 	for rows.Next() {

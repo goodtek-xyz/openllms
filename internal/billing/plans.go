@@ -5,9 +5,9 @@ import "time"
 type Plan string
 
 const (
-	PlanNone    Plan = "none"
-	PlanFree    Plan = "free"
-	PlanTrial   Plan = "trial" // deprecated DB/API alias — canonicalizes to free (not a timed trial)
+	PlanNone  Plan = "none"
+	PlanFree  Plan = "free"
+	PlanTrial Plan = "trial" // deprecated DB/API alias — canonicalizes to free (not a timed trial)
 
 	PlanStarter Plan = "starter"
 	PlanPro     Plan = "pro"

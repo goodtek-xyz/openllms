@@ -9,7 +9,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/goodtek-xyz/openllms/internal/modelcatalog"
 	"github.com/goodtek-xyz/openllms/internal/proxy"
-	"github.com/goodtek-xyz/openllms/internal/quota"
 	routerpkg "github.com/goodtek-xyz/openllms/internal/router"
 	"github.com/goodtek-xyz/openllms/internal/vendor"
 	"github.com/goodtek-xyz/openllms/internal/vendorauth"
@@ -114,10 +113,10 @@ func (s *Server) consoleOverviewPayload(ctx context.Context, projectID uuid.UUID
 		keyOut = append(keyOut, row)
 	}
 	return map[string]any{
-		"billing":  billing,
-		"accounts": accOut,
-		"routes":   rtOut,
-		"keys":     keyOut,
+		"billing":         billing,
+		"accounts":        accOut,
+		"routes":          rtOut,
+		"keys":            keyOut,
 		"public_base_url": s.cfg.PublicBaseURL,
 	}, nil
 }
@@ -172,7 +171,7 @@ func (s *Server) handleConsoleQuotaRefresh(w http.ResponseWriter, r *http.Reques
 	}
 	var updated, failed int
 	if s.secret != nil {
-		ref := &quota.Refresher{Store: s.store, Secrets: s.secret}
+		ref := s.quotaRefresher()
 		updated, failed = ref.RefreshProjectOAuth(r.Context(), ac.ProjectID)
 	}
 	var oauthRotated int

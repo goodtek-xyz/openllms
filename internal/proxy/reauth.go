@@ -79,6 +79,23 @@ func (e *Engine) confirmUnauthorized(ctx context.Context, acc *store.Account, re
 	res.ReauthRequired = e.markReauthRequired(ctx, acc, "upstream 401 twice, a cooldown apart, and no refresh token")
 }
 
+// UsageAnswer applies the request path's rule to the provider usage poll (quota.Refresher.OnUsageAnswer): an OAuth
+// login without a refresh token that answers 401 twice, a 401 cooldown apart, needs a re-link; any other answer clears
+// the observation. Such an account may get no traffic at all, so the poll is the only place its death shows.
+func (e *Engine) UsageAnswer(ctx context.Context, acc store.Account, status int, hasRefreshToken bool) {
+	if e == nil || acc.ReauthRequiredAt != nil {
+		return
+	}
+	if status != http.StatusUnauthorized {
+		e.unauthorized.Delete(acc.ID)
+		return
+	}
+	if hasRefreshToken {
+		return // the refresh flows decide (proactive refresh, request-path refresh on 401)
+	}
+	e.confirmUnauthorized(ctx, &acc, &Result{})
+}
+
 // flagIfUnchanged flags acc unless its stored credential is no longer any of known: a re-link (or another replica's
 // rotation) replaced it while this request ran, so the failure belongs to the old login.
 func (e *Engine) flagIfUnchanged(ctx context.Context, acc *store.Account, res *Result, reason string, known ...secrets.CredentialJSON) {

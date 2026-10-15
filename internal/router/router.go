@@ -433,7 +433,6 @@ func configFloat(cfg map[string]any, key string, fallback float64) float64 {
 	return fallback
 }
 
-
 func quotaPct(a store.Account) float64 {
 	if a.QuotaRemainingPct == nil {
 		return -1 // unknown last vs known

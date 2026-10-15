@@ -14,10 +14,6 @@ import (
 	"github.com/google/uuid"
 )
 
-
-
-
-
 func (s *Server) billingURL() string {
 	return s.cfg.PublicBaseURL + "/billing"
 }
@@ -66,12 +62,12 @@ func (s *Server) billingStatusPayload(ctx context.Context, projectID uuid.UUID) 
 		softCap = s.planSoftCap(ctx, projectID)
 	}
 	out := map[string]any{
-		"plan":                 string(ent.EffectivePlan(now)),
-		"raw_plan":             string(b.Plan),
-		"status":               b.Status,
-		"entitled":             ent.Entitled(now),
-		"free_used":            b.UserTrialUsed || b.TrialUsed,
-		"free_available":       !ent.Entitled(now),
+		"plan":           string(ent.EffectivePlan(now)),
+		"raw_plan":       string(b.Plan),
+		"status":         b.Status,
+		"entitled":       ent.Entitled(now),
+		"free_used":      b.UserTrialUsed || b.TrialUsed,
+		"free_available": !ent.Entitled(now),
 		// Legacy trial_* keys kept for older CLI/UI; same values as free_*.
 		"trial_used":           b.UserTrialUsed || b.TrialUsed,
 		"trial_available":      !ent.Entitled(now),
@@ -89,12 +85,12 @@ func (s *Server) billingStatusPayload(ctx context.Context, projectID uuid.UUID) 
 			"tokens_total":    tokens,
 			"soft_cap_tokens": softCap,
 		},
-		"soft_open":        billing.SoftOpen,
-		"paid_checkout":    billing.PublicPaidCheckout,
-		"rails":            s.paymentRails(),
-		"public_base_url":  s.cfg.PublicBaseURL,
-		"billing_url":      s.billingURL(),
-		"crew_signal_url":  s.cfg.PublicBaseURL + "/install",
+		"soft_open":       billing.SoftOpen,
+		"paid_checkout":   billing.PublicPaidCheckout,
+		"rails":           s.paymentRails(),
+		"public_base_url": s.cfg.PublicBaseURL,
+		"billing_url":     s.billingURL(),
+		"crew_signal_url": s.cfg.PublicBaseURL + "/install",
 	}
 	if billing.PublicPaidCheckout {
 		out["prices"] = map[string]any{"starter_usd": 5, "pro_usd": 9}
@@ -133,11 +129,6 @@ func (s *Server) handleControlBillingFree(w http.ResponseWriter, r *http.Request
 func (s *Server) handleControlBillingTrial(w http.ResponseWriter, r *http.Request) {
 	s.handleControlBillingFree(w, r)
 }
-
-
-
-
-
 
 // requireUserSession reuses admin GitHub session when login matches a user with a project.
 // Billing page uses the same allowlist-free device login store as admin when present;
@@ -342,7 +333,6 @@ func (s *Server) handleBillingPage(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-
 func (s *Server) handleBillingStatus(w http.ResponseWriter, r *http.Request) {
 	ac, ok := s.requireUserSession(w, r)
 	if !ok {
@@ -357,14 +347,12 @@ func (s *Server) handleBillingStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, payload)
 }
 
-
 func (s *Server) handleBillingLogout(w http.ResponseWriter, r *http.Request) {
 	if s.user.Enabled() {
 		s.user.Clear(w)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
-
 
 func (s *Server) handleBillingStartFree(w http.ResponseWriter, r *http.Request) {
 	ac, ok := s.requireUserSession(w, r)
@@ -469,4 +457,3 @@ func (s *Server) writeCrewSignal(w http.ResponseWriter, r *http.Request, project
 	out["login"] = login
 	writeJSON(w, http.StatusOK, out)
 }
-

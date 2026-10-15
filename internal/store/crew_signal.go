@@ -14,7 +14,7 @@ import (
 const MaxCrewSignalNoteRunes = 140
 
 var (
-	ErrCrewSignalUnavailable = errors.New("crew_signal_unavailable")
+	ErrCrewSignalUnavailable  = errors.New("crew_signal_unavailable")
 	ErrCrewSignalAlreadyToday = errors.New("crew_signal_already_today")
 )
 

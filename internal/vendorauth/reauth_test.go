@@ -90,6 +90,38 @@ func TestRefreshErrorClassification(t *testing.T) {
 	}
 }
 
+// The Codex token endpoint answers a dead refresh token with 401 and an undocumented body; like the Codex CLI, that
+// is account-level. A client-level code still wins, and the same 401 from the Claude endpoint stays transient.
+func TestCodexRefresh401IsAccountLevel(t *testing.T) {
+	cases := []struct {
+		vendor string
+		status int
+		body   string
+		want   RefreshFailure
+	}{
+		{"codex", 401, `{"error":{"message":"Could not validate your refresh token. Please try signing in again.","type":"invalid_request_error","param":null}}`, RefreshAccountRejected},
+		{"codex", 401, `<html>unauthorized</html>`, RefreshAccountRejected},
+		{"codex", 401, `{"error":"invalid_client"}`, RefreshClientRejected},
+		{"codex", 403, `{"error":{"message":"forbidden"}}`, RefreshTransient},
+		{"codex", 429, ``, RefreshTransient},
+		{"claude", 401, `{"error":{"message":"unauthorized"}}`, RefreshTransient},
+	}
+	for _, tc := range cases {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		prevC, prevX := ClaudeTokenURL, CodexTokenURL
+		ClaudeTokenURL, CodexTokenURL, HTTPClient = srv.URL, srv.URL, srv.Client()
+		_, err := Refresh(context.Background(), tc.vendor, "rt")
+		ClaudeTokenURL, CodexTokenURL, HTTPClient = prevC, prevX, nil
+		srv.Close()
+		if got, _ := RefreshFailureOf(err); got != tc.want {
+			t.Errorf("%s %d %s: failure=%d, want %d", tc.vendor, tc.status, tc.body, got, tc.want)
+		}
+	}
+}
+
 func TestCleanEmail(t *testing.T) {
 	for in, want := range map[string]string{
 		"dev@example.com":                     "dev@example.com",

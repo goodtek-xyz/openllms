@@ -386,8 +386,8 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 		out = append(out, map[string]any{
 			"id": a.ID.String(), "vendor": a.Vendor, "name": a.Name, "health": health, "base_url": a.BaseURL,
 			"email": a.Email, "reauth_required_at": a.ReauthRequiredAt,
-			"default_model":          a.DefaultModel,
-			"quota_remaining_pct":    a.QuotaRemainingPct, "quota_reset_at": a.QuotaResetAt,
+			"default_model":       a.DefaultModel,
+			"quota_remaining_pct": a.QuotaRemainingPct, "quota_reset_at": a.QuotaResetAt,
 			"quota_5h_remaining_pct": a.Quota5hRemainingPct, "quota_5h_reset_at": a.Quota5hResetAt,
 			"quota_7d_remaining_pct": a.Quota7dRemainingPct, "quota_7d_reset_at": a.Quota7dResetAt,
 		})
@@ -437,9 +437,18 @@ func (s *Server) StartQuotaRefresh(ctx context.Context, every time.Duration) {
 	}()
 }
 
+// quotaRefresher reads provider usage; its answers also feed the proxy's re-link detection.
+func (s *Server) quotaRefresher() *quota.Refresher {
+	ref := &quota.Refresher{Store: s.store, Secrets: s.secret}
+	if s.proxy != nil {
+		ref.OnUsageAnswer = s.proxy.UsageAnswer
+	}
+	return ref
+}
+
 func (s *Server) runQuotaRefresh(ctx context.Context) {
 	if s.secret != nil {
-		ref := &quota.Refresher{Store: s.store, Secrets: s.secret}
+		ref := s.quotaRefresher()
 		_, _ = ref.RefreshAllOAuth(ctx)
 	}
 	if s.proxy != nil && s.store != nil {
@@ -460,7 +469,7 @@ func (s *Server) handleQuotaRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	var updated, failed int
 	if s.secret != nil {
-		ref := &quota.Refresher{Store: s.store, Secrets: s.secret}
+		ref := s.quotaRefresher()
 		updated, failed = ref.RefreshProjectOAuth(r.Context(), ac.ProjectID)
 	}
 	var oauthRotated int

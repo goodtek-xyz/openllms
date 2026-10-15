@@ -112,6 +112,10 @@ export BOOTSTRAP_TOKEN=local-dev-bootstrap
 
 `./data/` はコミットしないでください。
 
+Postgres を使う場合は `make dev-db` で Docker 上に `127.0.0.1:54329` の Postgres を起動します（`deploy/dev/compose.yaml`）。
+`./bin/llms-gateway` の前に `export DATABASE_URL=postgres://llms:llms@127.0.0.1:54329/llms?sslmode=disable` を設定してください。
+停止は `make dev-db-down`、データは Docker ボリュームに残ります。ローカル開発専用です。
+
 ---
 
 ## 2. スモーク確認（他の作業の前に）

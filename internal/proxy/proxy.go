@@ -684,6 +684,20 @@ func isClaudeAccount(acc *store.Account) bool {
 	return v == "claude" || v == "anthropic"
 }
 
+func isClaudeOAuth(acc *store.Account) bool {
+	return isClaudeAccount(acc) && strings.EqualFold(acc.AuthType, "oauth")
+}
+
+// claudeOAuthWire reports whether a Messages request to acc gets the Claude Code OAuth wire: only an OAuth
+// account whose stored credential is an OAuth token, not an Anthropic API key linked as OAuth (sent as x-api-key).
+func (e *Engine) claudeOAuthWire(ctx context.Context, acc *store.Account) bool {
+	if !isClaudeOAuth(acc) {
+		return false
+	}
+	_, token, err := e.loadCredential(ctx, acc)
+	return err != nil || !vendor.IsAnthropicAPIKey(token)
+}
+
 func isOpenAIAPIKey(acc *store.Account) bool {
 	if acc == nil || !strings.EqualFold(acc.AuthType, "api_key") {
 		return false
@@ -727,11 +741,17 @@ func (e *Engine) callAnthropicBridge(ctx context.Context, acc *store.Account, bo
 	if err != nil {
 		return &Result{StatusCode: http.StatusBadRequest, Error: err.Error(), AccountID: acc.ID, Latency: time.Since(start)}, nil
 	}
+	if e.claudeOAuthWire(ctx, acc) {
+		respBody = ensureClaudeOAuthWire(respBody)
+	}
 	url := resolveAnthropicMessagesURL(acc)
 	return e.doUpstreamOnce(ctx, acc, respBody, url, "x-api-key", "", false, model, clientStream, start, false, true)
 }
 
 func (e *Engine) callAnthropic(ctx context.Context, acc *store.Account, body []byte) (*Result, error) {
+	if e.claudeOAuthWire(ctx, acc) {
+		body = ensureClaudeOAuthWire(body)
+	}
 	url := resolveAnthropicMessagesURL(acc)
 	return e.doUpstream(ctx, acc, body, url, "x-api-key", "", false)
 }
@@ -964,10 +984,16 @@ func applyUpstreamAuth(req *http.Request, acc *store.Account, cred secrets.Crede
 	oauth := strings.EqualFold(acc.AuthType, "oauth")
 	v := strings.ToLower(acc.Vendor)
 	switch {
+	case (v == "claude" || v == "anthropic") && vendor.IsAnthropicAPIKey(token):
+		// An API key stored on an OAuth account (linked before account_ops normalized it) authenticates as a key.
+		req.Header.Set("x-api-key", token)
+		req.Header.Set("anthropic-version", "2023-06-01")
 	case oauth && (v == "claude" || v == "anthropic"):
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("anthropic-version", "2023-06-01")
 		req.Header.Set("anthropic-beta", "oauth-2025-04-20")
+		req.Header.Set("User-Agent", claudeCodeUserAgent)
+		req.Header.Set("x-app", "cli")
 	case oauth && (v == "codex" || v == "openai"):
 		req.Header.Set("Authorization", "Bearer "+token)
 		if cred.ChatGPTAccountID != "" {

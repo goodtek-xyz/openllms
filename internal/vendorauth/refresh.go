@@ -58,7 +58,10 @@ var clientRejectedCodes = map[string]bool{
 }
 
 // Failure classifies the error. RFC 6749 §5.2 error responses are 400 (401 for invalid_client); a known code in a
-// 2xx body counts too. 429 and 5xx are transient whatever the body says.
+// 2xx body counts too. 429 and 5xx are transient whatever the body says. The OpenAI (Codex) token endpoint answers a
+// dead refresh token with 401 and codes it does not document ("Could not validate your refresh token"); the Codex CLI
+// treats every 401 from it as permanent (openai/codex codex-rs/login/src/auth/manager.rs, request_chatgpt_token_refresh),
+// so a Codex 401 without a client-level code is account-level here too.
 func (e *RefreshError) Failure() RefreshFailure {
 	if e.Status == http.StatusTooManyRequests || e.Status >= 500 || (e.Status >= 300 && e.Status < 400) {
 		return RefreshTransient
@@ -68,6 +71,8 @@ func (e *RefreshError) Failure() RefreshFailure {
 		return RefreshAccountRejected
 	case clientRejectedCodes[e.Code]:
 		return RefreshClientRejected
+	case e.Status == http.StatusUnauthorized && e.Vendor == "codex":
+		return RefreshAccountRejected
 	}
 	return RefreshTransient
 }

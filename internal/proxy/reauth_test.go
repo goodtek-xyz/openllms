@@ -369,3 +369,91 @@ func TestRefreshRecordsVendorEmail(t *testing.T) {
 		t.Fatalf("stored email %q, account email %v", st.emails[acc.ID], acc.Email)
 	}
 }
+
+// The usage poll applies the request path's rule: two 401s a cooldown apart, no refresh token → re-link; any other
+// answer restarts the observation; a renewable login is left to the refresh flows.
+func TestUsageAnswerNeedsConfirmation(t *testing.T) {
+	sec := memory.New()
+	acc := oauthAccount(t, sec, "http://unused.invalid", secrets.CredentialJSON{AccessToken: "at"})
+	st, rec := &reauthStore{}, &notifyRecorder{}
+	eng := &Engine{Store: st, Secrets: sec, Reauth: rec}
+	ctx := context.Background()
+	backdate := func() {
+		eng.unauthorized.Store(acc.ID, time.Now().Add(-router.CooldownForStatus(http.StatusUnauthorized, 0)))
+	}
+
+	eng.UsageAnswer(ctx, *acc, http.StatusUnauthorized, false)
+	eng.UsageAnswer(ctx, *acc, http.StatusUnauthorized, false)
+	if st.detections(acc.ID) != 0 {
+		t.Fatal("401s within one cooldown must not flag")
+	}
+	backdate()
+	eng.UsageAnswer(ctx, *acc, http.StatusOK, false)
+	eng.UsageAnswer(ctx, *acc, http.StatusUnauthorized, false)
+	if st.detections(acc.ID) != 0 {
+		t.Fatal("a success must restart the observation")
+	}
+	backdate()
+	eng.UsageAnswer(ctx, *acc, http.StatusUnauthorized, true)
+	if st.detections(acc.ID) != 0 {
+		t.Fatal("a login with a refresh token is left to the refresh flows")
+	}
+	eng.UsageAnswer(ctx, *acc, http.StatusUnauthorized, false)
+	if st.detections(acc.ID) != 1 || rec.count() != 1 {
+		t.Fatalf("second 401 a cooldown later: detections=%d notifications=%d", st.detections(acc.ID), rec.count())
+	}
+	since := time.Now()
+	acc.ReauthRequiredAt = &since
+	backdate()
+	eng.UsageAnswer(ctx, *acc, http.StatusUnauthorized, false)
+	if st.detections(acc.ID) != 1 {
+		t.Fatal("an account already waiting for a re-link is not flagged again")
+	}
+}
+
+// A Codex refresh token the OpenAI token endpoint rejects with 401 (undocumented body) flags the account once,
+// instead of being retried every poll.
+func TestRefreshExpiringOAuthFlagsCodex401(t *testing.T) {
+	var hits atomic.Int32
+	tok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"message":"Could not validate your refresh token. Please try signing in again.","type":"invalid_request_error"}}`))
+	}))
+	defer tok.Close()
+	prev, prevHTTP := vendorauth.CodexTokenURL, vendorauth.HTTPClient
+	vendorauth.CodexTokenURL, vendorauth.HTTPClient = tok.URL, tok.Client()
+	t.Cleanup(func() { vendorauth.CodexTokenURL, vendorauth.HTTPClient = prev, prevHTTP })
+
+	sec := memory.New()
+	soon := time.Now().UTC().Add(time.Minute).Format(time.RFC3339)
+	acc := oauthAccount(t, sec, "http://unused.invalid", secrets.CredentialJSON{AccessToken: "at", RefreshToken: "rt", ExpiresAt: soon})
+	acc.Vendor = "codex"
+	st, rec := &reauthStore{}, &notifyRecorder{}
+	eng := &Engine{Store: st, Secrets: sec, Reauth: rec}
+	if _, failed, _ := eng.RefreshExpiringOAuth(context.Background(), []store.Account{*acc}, time.Hour); failed != 1 {
+		t.Fatalf("failed=%d, want 1", failed)
+	}
+	if st.detections(acc.ID) != 1 || rec.count() != 1 || hits.Load() != 1 {
+		t.Fatalf("detections=%d notifications=%d token hits=%d", st.detections(acc.ID), rec.count(), hits.Load())
+	}
+}
+
+// An Anthropic API key stored on an OAuth account authenticates as a key (x-api-key), not as a bearer token, which
+// Anthropic answers with 401 "x-api-key header is required".
+func TestAnthropicAPIKeyOnOAuthAccountUsesXAPIKey(t *testing.T) {
+	acc := &store.Account{Vendor: "claude", AuthType: "oauth"}
+	req := httptest.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", nil)
+	applyUpstreamAuth(req, acc, secrets.CredentialJSON{AccessToken: "sk-ant-api03-test"}, "sk-ant-api03-test", false, "x-api-key", "")
+	if got := req.Header.Get("x-api-key"); got != "sk-ant-api03-test" {
+		t.Fatalf("x-api-key=%q", got)
+	}
+	if req.Header.Get("Authorization") != "" || req.Header.Get("anthropic-beta") != "" {
+		t.Fatalf("API key sent with OAuth headers: %v", req.Header)
+	}
+	req = httptest.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", nil)
+	applyUpstreamAuth(req, acc, secrets.CredentialJSON{AccessToken: "sk-ant-oat01-test"}, "sk-ant-oat01-test", false, "x-api-key", "")
+	if req.Header.Get("Authorization") != "Bearer sk-ant-oat01-test" || req.Header.Get("x-api-key") != "" {
+		t.Fatalf("OAuth token headers: %v", req.Header)
+	}
+}

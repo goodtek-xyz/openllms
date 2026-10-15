@@ -7,10 +7,10 @@ import (
 
 // MemoryLimiter is a simple per-key fixed window limiter (process-local).
 type MemoryLimiter struct {
-	mu       sync.Mutex
-	limit    int
-	window   time.Duration
-	buckets  map[string]*bucket
+	mu      sync.Mutex
+	limit   int
+	window  time.Duration
+	buckets map[string]*bucket
 }
 
 type bucket struct {

@@ -42,6 +42,15 @@ var (
 	ClaudeUsageURL = "https://api.anthropic.com/api/oauth/usage"
 )
 
+// UsageError is a non-2xx answer of a usage endpoint.
+type UsageError struct {
+	Vendor string // "codex" or "claude"
+	Status int
+	Text   string // status line + truncated body
+}
+
+func (e *UsageError) Error() string { return e.Vendor + " usage: " + e.Text }
+
 // FetchCodex calls ChatGPT Codex usage (undocumented; same as Codex CLI).
 func FetchCodex(ctx context.Context, accessToken, accountID string) (Snapshot, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, CodexUsageURL, nil)
@@ -61,7 +70,7 @@ func FetchCodex(ctx context.Context, accessToken, accountID string) (Snapshot, e
 	defer res.Body.Close()
 	b, _ := io.ReadAll(res.Body)
 	if res.StatusCode >= 300 {
-		return Snapshot{}, fmt.Errorf("codex usage: %s %s", res.Status, truncate(b, 200))
+		return Snapshot{}, &UsageError{Vendor: "codex", Status: res.StatusCode, Text: res.Status + " " + truncate(b, 200)}
 	}
 	return ParseCodexUsage(b)
 }
@@ -83,7 +92,7 @@ func FetchClaude(ctx context.Context, accessToken string) (Snapshot, error) {
 	defer res.Body.Close()
 	b, _ := io.ReadAll(res.Body)
 	if res.StatusCode >= 300 {
-		return Snapshot{}, fmt.Errorf("claude usage: %s %s", res.Status, truncate(b, 200))
+		return Snapshot{}, &UsageError{Vendor: "claude", Status: res.StatusCode, Text: res.Status + " " + truncate(b, 200)}
 	}
 	return ParseClaudeUsage(b)
 }
