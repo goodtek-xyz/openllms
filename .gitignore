@@ -11,6 +11,8 @@ dist/
 .env.*
 !.env.example
 *.exe
+# Root outputs of `go build ./cmd/llms` and `go build ./cmd/llms-gateway`
+/llms-gateway
 # Host-persistent runtime data (Compose bind mounts)
 /llms
 # Local agent / UI capture artifacts (not shipped)

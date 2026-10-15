@@ -58,7 +58,8 @@ func (a *Affinity) Set(key string, accountID uuid.UUID) {
 	a.mu.Unlock()
 }
 
-// SessionKey resolves sticky key per D-008 order.
+// SessionKey resolves the sticky key: body session_id, body llms.session_key, X-Session-Id header,
+// prompt_cache_key, then a hash of the first system + user text.
 func SessionKey(hdr http.Header, body []byte) string {
 	var peek struct {
 		SessionID      string          `json:"session_id"`

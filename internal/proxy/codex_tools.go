@@ -274,9 +274,9 @@ func parseCompletedOutput(resp map[string]any, state *codexParseState) {
 		// Tools / tool_calls only — never assistant message text here.
 		state.ingestOutputItem(m, false)
 	}
-	// TASK-024 contract: completed.output message text is the authoritative
-	// final body. Deltas are for streaming to the client; replacing avoids
-	// delta+message double-append (TASK-035 regression → okok).
+	// completed.output message text is the authoritative final body. Deltas
+	// are for streaming to the client; replacing avoids a delta+message
+	// double-append ("ok" + "ok" → "okok").
 	if final := extractCompletedText(resp); final != "" {
 		state.text.Reset()
 		state.text.WriteString(final)

@@ -36,6 +36,10 @@ type Result struct {
 	StickyHit  bool
 	// Failovers are prior account attempts that soft-failed before the final Result.
 	Failovers []FailoverAttempt
+	// ReauthRequired: the account needs a new login and has left routing (no cooldown needed).
+	ReauthRequired bool
+	// CredentialReplaced: the account was re-linked while this request ran; the failure belongs to the old login.
+	CredentialReplaced bool
 }
 
 // FailoverAttempt records one soft-failed account try for usage / diagnostics.
@@ -54,6 +58,8 @@ type AccountStore interface {
 	EarliestRouteCooldown(ctx context.Context, routeID uuid.UUID) (until time.Time, ok bool, err error)
 	SetCooldown(ctx context.Context, accountID uuid.UUID, until time.Time) error
 	MarkAccountHealthy(ctx context.Context, accountID uuid.UUID) error
+	MarkAccountReauthRequired(ctx context.Context, accountID uuid.UUID) (first bool, err error)
+	SetAccountEmail(ctx context.Context, accountID uuid.UUID, email string) error
 	GetRouteBySlug(ctx context.Context, projectID uuid.UUID, slug string) (*store.Route, error)
 }
 
@@ -64,24 +70,37 @@ type Engine struct {
 	Selector *router.Selector
 	Affinity *Affinity
 	Log      *slog.Logger
+	Reauth   ReauthNotifier // optional; told once per incident when an account needs a re-link
 
-	refreshGates *refreshGates
+	defaultsOnce   sync.Once    // fills Affinity and Selector when left nil; see defaults
+	unauthorized   sync.Map     // account id → first 401 seen without a refresh token; see confirmUnauthorized
+	clientRejected sync.Map     // vendor|code of client-level refresh rejections already reported
+	refreshGates   refreshGates // per-account OAuth refresh locks; the zero value is ready to use
 
 	pendingMu    sync.Mutex
 	pendingCreds map[string]secrets.CredentialJSON
 }
 
+// defaults creates the optional collaborators the caller left nil, exactly once: an Engine serves concurrent
+// requests, so a check-then-set here would be a data race.
+func (e *Engine) defaults() {
+	e.defaultsOnce.Do(func() {
+		if e.Affinity == nil {
+			e.Affinity = NewAffinity(DefaultAffinityTTL)
+		}
+		if e.Selector == nil {
+			e.Selector = router.NewSelector()
+		}
+	})
+}
+
 func (e *Engine) affinity() *Affinity {
-	if e.Affinity == nil {
-		e.Affinity = NewAffinity(DefaultAffinityTTL)
-	}
+	e.defaults()
 	return e.Affinity
 }
 
 func (e *Engine) selector() *router.Selector {
-	if e.Selector == nil {
-		e.Selector = router.NewSelector()
-	}
+	e.defaults()
 	return e.Selector
 }
 
@@ -395,8 +414,12 @@ func (e *Engine) dispatch(ctx context.Context, rt *store.Route, body []byte, met
 		// Soft-fail: try next seat (auth death, rate limit, upstream 5xx).
 		if router.IsRetryableStatus(res.StatusCode) || res.StatusCode == 0 {
 			sel.NoteSoftFail(acc.ID)
-			dur := router.CooldownFromHeaders(res.StatusCode, res.Header, 0)
-			_ = e.Store.SetCooldown(ctx, acc.ID, time.Now().Add(dur))
+			// A reauth account already left routing until re-linked; a re-linked one must not be cooled down for the
+			// old login's failure.
+			if !res.ReauthRequired && !res.CredentialReplaced {
+				dur := router.CooldownFromHeaders(res.StatusCode, res.Header, 0)
+				_ = e.Store.SetCooldown(ctx, acc.ID, time.Now().Add(dur))
+			}
 			failovers = append(failovers, FailoverAttempt{
 				AccountID: acc.ID, StatusCode: res.StatusCode,
 				Error: res.Error, Latency: res.Latency, Model: res.Model,
@@ -484,11 +507,24 @@ func (e *Engine) emptyAccountsResult(ctx context.Context, rt *store.Route, filte
 		}
 		retryAfter = sec
 	}
+	reauth := 0
+	for _, a := range pool {
+		if a.ReauthRequiredAt != nil {
+			reauth++
+		}
+	}
+	hint := "all attached accounts are in cooldown; retry after Retry-After"
+	if reauth == len(pool) {
+		hint = "all attached accounts need a re-link: connect them again in the console"
+	} else if reauth > 0 {
+		hint = "attached accounts are in cooldown or need a re-link (console); retry after Retry-After"
+	}
 	body, _ := json.Marshal(map[string]any{
-		"error":       "no_usable_accounts",
-		"hint":        "all attached accounts are in cooldown; retry after Retry-After",
-		"pool_size":   len(pool),
-		"retry_after": retryAfter,
+		"error":           "no_usable_accounts",
+		"hint":            hint,
+		"pool_size":       len(pool),
+		"reauth_required": reauth,
+		"retry_after":     retryAfter,
 	})
 	hdr := make(http.Header)
 	hdr.Set("Retry-After", fmt.Sprintf("%d", retryAfter))
@@ -738,7 +774,15 @@ func (e *Engine) doUpstreamOnce(ctx context.Context, acc *store.Account, body []
 	if err != nil || res == nil {
 		return res, err
 	}
-	if res.StatusCode != http.StatusUnauthorized || !strings.EqualFold(acc.AuthType, "oauth") || strings.TrimSpace(cred.RefreshToken) == "" {
+	if !strings.EqualFold(acc.AuthType, "oauth") {
+		return res, nil
+	}
+	if res.StatusCode != http.StatusUnauthorized {
+		e.unauthorized.Delete(acc.ID)
+		return res, nil
+	}
+	if strings.TrimSpace(cred.RefreshToken) == "" {
+		e.confirmUnauthorized(ctx, acc, res)
 		return res, nil
 	}
 	// Drain failed attempt body if still open.
@@ -748,9 +792,15 @@ func (e *Engine) doUpstreamOnce(ctx context.Context, acc *store.Account, body []
 	}
 	newCred, rerr := e.refreshOAuthCredential(ctx, acc, cred)
 	if rerr != nil {
-		return res, nil // surface original 401
+		// Transient refresh failures keep the original 401 and its cooldown; a rejected grant needs a new login.
+		e.handleRefreshFailure(ctx, acc, cred, rerr, res)
+		return res, nil
 	}
-	return e.execUpstream(ctx, acc, body, url, authHeader, bearerPrefix, openaiAuth, newCred, newCred.BearerToken(), model, stream, start, codexResponses, anthropicBridge)
+	retried, err := e.execUpstream(ctx, acc, body, url, authHeader, bearerPrefix, openaiAuth, newCred, newCred.BearerToken(), model, stream, start, codexResponses, anthropicBridge)
+	if err == nil && retried != nil {
+		e.handleRetried(ctx, acc, cred, newCred, retried)
+	}
+	return retried, err
 }
 
 func (e *Engine) loadCredential(ctx context.Context, acc *store.Account) (secrets.CredentialJSON, string, error) {

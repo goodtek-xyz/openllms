@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/goodtekxyz/openllms/internal/backoff"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -80,8 +81,55 @@ func newPGX(pool *pgxpool.Pool) DB { return &pgxDB{pool: pool} }
 
 func (d *pgxDB) Dialect() Dialect { return DialectPostgres }
 
+// Retrying single statements across a Postgres primary switchover or failover, which leaves a few seconds without a
+// writable primary (HA setups, managed databases, operator-driven updates). Only errors that prove the statement had
+// no effect are retried:
+//   - pgconn.SafeToRetry: the error happened before the statement was sent (pgx's documented retry signal);
+//   - SQLSTATE class 08 (connection exception), 57P01/57P02/57P03 (server shutting down / not accepting yet): the
+//     server ended the session, so an uncommitted single statement was rolled back;
+//   - 25006 (read-only transaction): a write reached the old primary after it became a replica and was refused.
+//
+// Transactions (Begin) are not retried here: their callers own the unit of work. Backoff 100 ms doubling to 2 s with
+// full jitter, for at most retryBudget (longer than a typical switchover) or until ctx ends.
+const retryBudget = 15 * time.Second
+
+func retryable(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if pgconn.SafeToRetry(err) {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch {
+		case len(pgErr.Code) == 5 && pgErr.Code[:2] == "08",
+			pgErr.Code == "57P01", pgErr.Code == "57P02", pgErr.Code == "57P03", pgErr.Code == "25006":
+			return true
+		}
+		return false
+	}
+	var connErr *pgconn.ConnectError
+	return errors.As(err, &connErr)
+}
+
+func withRetry[T any](ctx context.Context, op func() (T, error)) (T, error) {
+	deadline := time.Now().Add(retryBudget)
+	b := backoff.Backoff{Base: 100 * time.Millisecond, Cap: 2 * time.Second}
+	for {
+		v, err := op()
+		if !retryable(err) {
+			return v, err
+		}
+		pause := b.Next()
+		if time.Now().Add(pause).After(deadline) || backoff.Sleep(ctx, pause) != nil {
+			return v, err
+		}
+	}
+}
+
 func (d *pgxDB) Exec(ctx context.Context, sql string, args ...any) (Result, error) {
-	tag, err := d.pool.Exec(ctx, sql, args...)
+	tag, err := withRetry(ctx, func() (pgconn.CommandTag, error) { return d.pool.Exec(ctx, sql, args...) })
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +137,22 @@ func (d *pgxDB) Exec(ctx context.Context, sql string, args ...any) (Result, erro
 }
 
 func (d *pgxDB) Query(ctx context.Context, sql string, args ...any) (Rows, error) {
-	rows, err := d.pool.Query(ctx, sql, args...)
+	rows, err := withRetry(ctx, func() (pgx.Rows, error) {
+		r, err := d.pool.Query(ctx, sql, args...)
+		if err != nil {
+			return nil, err
+		}
+		// pgx reports some send/connect errors only once the result is read; surface them here so they are retried
+		if !r.Next() {
+			if rerr := r.Err(); rerr != nil {
+				r.Close()
+				return nil, rerr
+			}
+			r.Close()
+			return emptyRows{}, nil
+		}
+		return &peekedRows{rows: r}, nil
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +160,7 @@ func (d *pgxDB) Query(ctx context.Context, sql string, args ...any) (Rows, error
 }
 
 func (d *pgxDB) QueryRow(ctx context.Context, sql string, args ...any) Row {
-	return d.pool.QueryRow(ctx, sql, args...)
+	return retryRow{ctx: ctx, run: func(dest ...any) error { return d.pool.QueryRow(ctx, sql, args...).Scan(dest...) }}
 }
 
 func (d *pgxDB) Begin(ctx context.Context) (Tx, error) {
@@ -108,8 +171,57 @@ func (d *pgxDB) Begin(ctx context.Context) (Tx, error) {
 	return &pgxTx{tx: tx}, nil
 }
 
-func (d *pgxDB) Ping(ctx context.Context) error { return d.pool.Ping(ctx) }
-func (d *pgxDB) Close()                        { d.pool.Close() }
+func (d *pgxDB) Ping(ctx context.Context) error {
+	_, err := withRetry(ctx, func() (struct{}, error) { return struct{}{}, d.pool.Ping(ctx) })
+	return err
+}
+
+// retryRow runs the query when scanned, so a connection error surfaced by Scan can be retried as a whole.
+type retryRow struct {
+	ctx context.Context
+	run func(dest ...any) error
+}
+
+func (r retryRow) Scan(dest ...any) error {
+	_, err := withRetry(r.ctx, func() (struct{}, error) { return struct{}{}, r.run(dest...) })
+	return err
+}
+
+// peekedRows hands back the first row that Query read while checking for an error, then continues.
+type peekedRows struct {
+	rows   pgx.Rows
+	peeked bool
+}
+
+func (p *peekedRows) Next() bool {
+	if !p.peeked {
+		p.peeked = true
+		return true
+	}
+	return p.rows.Next()
+}
+func (p *peekedRows) Scan(dest ...any) error                       { return p.rows.Scan(dest...) }
+func (p *peekedRows) Close()                                       { p.rows.Close() }
+func (p *peekedRows) Err() error                                   { return p.rows.Err() }
+func (p *peekedRows) CommandTag() pgconn.CommandTag                { return p.rows.CommandTag() }
+func (p *peekedRows) FieldDescriptions() []pgconn.FieldDescription { return p.rows.FieldDescriptions() }
+func (p *peekedRows) Values() ([]any, error)                       { return p.rows.Values() }
+func (p *peekedRows) RawValues() [][]byte                          { return p.rows.RawValues() }
+func (p *peekedRows) Conn() *pgx.Conn                              { return p.rows.Conn() }
+
+// emptyRows is a finished result with no rows.
+type emptyRows struct{}
+
+func (emptyRows) Next() bool                                   { return false }
+func (emptyRows) Scan(...any) error                            { return pgx.ErrNoRows }
+func (emptyRows) Close()                                       {}
+func (emptyRows) Err() error                                   { return nil }
+func (emptyRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (emptyRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (emptyRows) Values() ([]any, error)                       { return nil, nil }
+func (emptyRows) RawValues() [][]byte                          { return nil }
+func (emptyRows) Conn() *pgx.Conn                              { return nil }
+func (d *pgxDB) Close()                                        { d.pool.Close() }
 
 type pgxTx struct{ tx pgx.Tx }
 
@@ -163,7 +275,7 @@ func (r *sqlRows) Next() bool { return r.rows.Next() }
 func (r *sqlRows) Scan(dest ...any) error {
 	return r.rows.Scan(wrapTimeScanners(dest)...)
 }
-func (r *sqlRows) Close() { _ = r.rows.Close() }
+func (r *sqlRows) Close()     { _ = r.rows.Close() }
 func (r *sqlRows) Err() error { return r.rows.Err() }
 
 type sqlRow struct{ row *sql.Row }
@@ -295,7 +407,7 @@ func (d *sqliteDB) Begin(ctx context.Context) (Tx, error) {
 }
 
 func (d *sqliteDB) Ping(ctx context.Context) error { return d.db.PingContext(ctx) }
-func (d *sqliteDB) Close()                        { _ = d.db.Close() }
+func (d *sqliteDB) Close()                         { _ = d.db.Close() }
 
 type sqliteTx struct{ tx *sql.Tx }
 

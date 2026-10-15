@@ -1,11 +1,11 @@
 # openllms
 
-[![GitHub stars](https://img.shields.io/github/stars/goodtekxyz/openllms?style=social)](https://github.com/goodtekxyz/openllms)
+[![GitHub stars](https://img.shields.io/github/stars/goodtek-xyz/openllms?style=social)](https://github.com/goodtek-xyz/openllms)
 
 이미 내고 있는 ChatGPT / Claude(그리고 Codex) 좌석을 **OpenAI 호환 API 하나**로 묶습니다.  
 남은 한도를 보고 트래픽을 나눠서, 한쪽만 태우고 나머지는 노는 일을 줄입니다.
 
-셀프호스트는 MIT로 **영구 무료**입니다. 게이트웨이 자체에 사용량 미터는 없습니다. 도움이 됐다면 [★ Star](https://github.com/goodtekxyz/openllms).
+셀프호스트는 MIT로 **영구 무료**입니다. 게이트웨이 자체에 사용량 미터는 없습니다. 도움이 됐다면 [★ Star](https://github.com/goodtek-xyz/openllms).
 
 [English](README.md) · [日本語](README.ja.md) · [中文](README.zh.md) · [MIT](LICENSE) · [호스팅](https://llms.goodtek.xyz)
 
@@ -41,7 +41,7 @@
 ### A. Docker
 
 ```bash
-git clone https://github.com/goodtekxyz/openllms.git
+git clone https://github.com/goodtek-xyz/openllms.git
 cd openllms
 
 # 포그라운드 — 이 터미널에 로그 (Ctrl+C면 중지)
@@ -82,7 +82,7 @@ x509: certificate signed by unknown authority
 ### B. Go (Docker 없이)
 
 ```bash
-git clone https://github.com/goodtekxyz/openllms.git
+git clone https://github.com/goodtek-xyz/openllms.git
 cd openllms
 mkdir -p data/secrets bin
 
@@ -134,6 +134,8 @@ curl -sS http://127.0.0.1:8080/ready
 ```
 
 `curl: Failed to connect` → 게이트웨이가 안 떠 있음 (§1 다시, 그 터미널 유지).
+
+게이트웨이는 마이그레이션과 DB 연결이 끝나기 전에 먼저 포트를 엽니다. 그동안 `/health`와 `/livez`는 바로 200을, `/readyz`는 503 `{"status":"starting"}`을 돌려주고(시작이 끝나면 200 `{"status":"ready"}`), 나머지 경로는 503 `{"error":"starting"}`을 돌려줍니다. 오케스트레이터 probe에는 `/livez`(liveness)와 `/readyz`(readiness)를 쓰세요. `/readyz`는 DB를 직접 확인하지 않으므로 DB 전환 중에도 모든 레플리카가 한꺼번에 빠지지 않습니다. 모니터링용 `/ready`는 지금처럼 DB를 확인합니다.
 
 ---
 

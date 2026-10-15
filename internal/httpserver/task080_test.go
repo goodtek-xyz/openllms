@@ -37,7 +37,7 @@ func TestTask080PublicSiteFixes(t *testing.T) {
   if strings.Contains(body, "README.ko.md") {
     t.Fatal("en home must not link KO readme")
   }
-  if !strings.Contains(body, "github.com/goodtekxyz/openllms") {
+  if !strings.Contains(body, "github.com/goodtek-xyz/openllms") {
     t.Fatal("en home missing openllms repo link")
   }
 

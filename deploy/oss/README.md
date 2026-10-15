@@ -14,6 +14,8 @@ docker compose -f deploy/oss/docker-compose.yml up --build
 # background: add -d
 curl -sS http://127.0.0.1:8080/health   # {"status":"ok"}
 curl -sS http://127.0.0.1:8080/ready    # {"status":"ready"}
+curl -sS http://127.0.0.1:8080/livez    # {"status":"ok"}     liveness, answers during start-up too
+curl -sS http://127.0.0.1:8080/readyz   # {"status":"ready"}  503 "starting" until start-up finished
 ```
 
 Wipe volume: `docker compose -f deploy/oss/docker-compose.yml down -v`.  

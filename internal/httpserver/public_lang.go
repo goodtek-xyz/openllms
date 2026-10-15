@@ -132,7 +132,7 @@ func loginPathForLang(lang string) string {
 }
 
 func openllmsHrefForLang(lang string) string {
-	base := "https://github.com/goodtekxyz/openllms"
+	base := "https://github.com/goodtek-xyz/openllms"
 	switch lang {
 	case "ko":
 		return base + "/blob/main/README.ko.md"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local OSS smoke without Docker: builds gateway, runs SQLite+file vault, hits /health+/ready.
+# Local OSS smoke without Docker: builds gateway, runs SQLite+file vault, hits /health, /ready, /livez and /readyz.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d)"
@@ -25,6 +25,8 @@ for _ in $(seq 1 30); do
 done
 
 curl -sf "http://127.0.0.1:18082/health" | grep -q '"status":"ok"'
+curl -sf "http://127.0.0.1:18082/livez" | grep -q '"status":"ok"'
+curl -sf "http://127.0.0.1:18082/readyz" | grep -q '"status":"ready"'
 curl -sf "http://127.0.0.1:18082/ready" | grep -q '"status":"ready"'
 
 # Unit/integration E2E covers chat path; this script verifies process boot.

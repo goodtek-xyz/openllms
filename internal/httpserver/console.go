@@ -74,15 +74,11 @@ func (s *Server) consoleOverviewPayload(ctx context.Context, projectID uuid.UUID
 	}
 	accOut := make([]map[string]any, 0, len(accounts))
 	for _, a := range accounts {
-		glyph := "●"
-		if a.Health == "cooldown" {
-			glyph = "○"
-		} else if a.Health == "error" {
-			glyph = "✖"
-		}
+		health, glyph := accountHealth(a)
 		accOut = append(accOut, map[string]any{
 			"id": a.ID.String(), "vendor": a.Vendor, "name": a.Name,
-			"health": a.Health, "glyph": glyph, "auth_type": a.AuthType,
+			"health": health, "glyph": glyph, "auth_type": a.AuthType,
+			"email": a.Email, "reauth_required_at": a.ReauthRequiredAt,
 			"quota_remaining_pct": a.QuotaRemainingPct, "quota_reset_at": a.QuotaResetAt,
 			"quota_5h_remaining_pct": a.Quota5hRemainingPct, "quota_5h_reset_at": a.Quota5hResetAt,
 			"quota_7d_remaining_pct": a.Quota7dRemainingPct, "quota_7d_reset_at": a.Quota7dResetAt,
@@ -203,22 +199,20 @@ func (s *Server) handleConsoleCreateAccount(w http.ResponseWriter, r *http.Reque
 	if !s.ensureConsoleEntitled(w, r, ac.ProjectID) {
 		return
 	}
-	if !s.requirePlanCapacity(w, r, ac.ProjectID, "account") {
-		return
-	}
 	var body accountCreateInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json"})
 		return
 	}
-	acc, code, errBody := s.createAccountForProjectInner(r.Context(), ac.ProjectID, body)
+	if !s.requireAccountCapacity(w, r, ac.ProjectID, body) {
+		return
+	}
+	acc, relinked, code, errBody := s.createAccountForProjectInner(r.Context(), ac.ProjectID, body)
 	if acc == nil {
 		writeJSON(w, code, errBody)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"id": acc.ID.String(), "vendor": acc.Vendor, "name": acc.Name,
-	})
+	writeLinkedAccount(w, acc, relinked)
 }
 
 func (s *Server) handleConsoleDeleteAccount(w http.ResponseWriter, r *http.Request) {
@@ -273,9 +267,6 @@ func (s *Server) handleConsoleConnectClaudeComplete(w http.ResponseWriter, r *ht
 	if !s.ensureConsoleEntitled(w, r, ac.ProjectID) {
 		return
 	}
-	if !s.requirePlanCapacity(w, r, ac.ProjectID, "account") {
-		return
-	}
 	var body struct {
 		PendingID string `json:"pending_id"`
 		Code      string `json:"code"`
@@ -283,6 +274,9 @@ func (s *Server) handleConsoleConnectClaudeComplete(w http.ResponseWriter, r *ht
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.PendingID == "" || body.Code == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "pending_id and code required"})
+		return
+	}
+	if !s.requireAccountCapacity(w, r, ac.ProjectID, accountCreateInput{Vendor: "claude", Name: body.Name, AuthType: "oauth"}) {
 		return
 	}
 	entry, ok := s.vendorPending.getClaude(body.PendingID)
@@ -296,12 +290,12 @@ func (s *Server) handleConsoleConnectClaudeComplete(w http.ResponseWriter, r *ht
 		return
 	}
 	in := tokensToAccountInput("claude", body.Name, toks)
-	acc, code, errBody := s.createAccountForProjectInner(r.Context(), ac.ProjectID, in)
+	acc, relinked, code, errBody := s.createAccountForProjectInner(r.Context(), ac.ProjectID, in)
 	if acc == nil {
 		writeJSON(w, code, errBody)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"id": acc.ID.String(), "vendor": acc.Vendor, "name": acc.Name})
+	writeLinkedAccount(w, acc, relinked)
 }
 
 func (s *Server) handleConsoleConnectCodexStart(w http.ResponseWriter, r *http.Request) {
@@ -352,16 +346,16 @@ func (s *Server) handleConsoleConnectCodexPoll(w http.ResponseWriter, r *http.Re
 	if !s.ensureConsoleEntitled(w, r, ac.ProjectID) {
 		return
 	}
-	if !s.requirePlanCapacity(w, r, ac.ProjectID, "account") {
+	in := tokensToAccountInput("codex", body.Name, toks)
+	if !s.requireAccountCapacity(w, r, ac.ProjectID, in) {
 		return
 	}
-	in := tokensToAccountInput("codex", body.Name, toks)
-	acc, code, errBody := s.createAccountForProjectInner(r.Context(), ac.ProjectID, in)
+	acc, relinked, code, errBody := s.createAccountForProjectInner(r.Context(), ac.ProjectID, in)
 	if acc == nil {
 		writeJSON(w, code, errBody)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"id": acc.ID.String(), "vendor": acc.Vendor, "name": acc.Name})
+	writeLinkedAccount(w, acc, relinked)
 }
 
 func (s *Server) handleConsoleCreateRoute(w http.ResponseWriter, r *http.Request) {

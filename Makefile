@@ -1,4 +1,4 @@
-.PHONY: test tidy build run health
+.PHONY: test tidy build run health dev-db dev-db-down
 
 export PATH := /usr/local/go/bin:$(PATH)
 
@@ -26,6 +26,13 @@ health:
 	@echo
 	curl -sf http://127.0.0.1:8080/ready
 	@echo
+
+# Local Postgres for `make run` (deploy/dev/compose.yaml, 127.0.0.1:54329).
+dev-db:
+	docker compose -f deploy/dev/compose.yaml up -d --wait
+
+dev-db-down:
+	docker compose -f deploy/dev/compose.yaml down
 
 .PHONY: build-oss build-cloud
 

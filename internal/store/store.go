@@ -405,6 +405,8 @@ type Account struct {
 	Quota5hResetAt      *time.Time
 	Quota7dRemainingPct *float64
 	Quota7dResetAt      *time.Time
+	Email               *string    // vendor account email captured at link time; nil = unknown
+	ReauthRequiredAt    *time.Time // set when the account needs a human re-link; such accounts are not routed
 }
 
 func (s *Store) CreateAccount(ctx context.Context, projectID uuid.UUID, vendorName, name, authType, infisicalPath, baseURL string, defaultModel ...string) (*Account, error) {
@@ -487,7 +489,8 @@ func (s *Store) UpdateRoute(ctx context.Context, projectID uuid.UUID, slug, stra
 func (s *Store) ListRoutePool(ctx context.Context, routeID uuid.UUID) ([]Account, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT a.id, a.project_id, a.vendor, a.name, a.auth_type, a.infisical_path, a.base_url, a.health, a.default_model,
-		       ra.weight, ra.position, a.quota_remaining_pct, a.quota_reset_at, a.quota_updated_at, a.quota_5h_remaining_pct, a.quota_5h_reset_at, a.quota_7d_remaining_pct, a.quota_7d_reset_at
+		       ra.weight, ra.position, a.quota_remaining_pct, a.quota_reset_at, a.quota_updated_at, a.quota_5h_remaining_pct, a.quota_5h_reset_at, a.quota_7d_remaining_pct, a.quota_7d_reset_at,
+		       a.email, a.reauth_required_at
 		FROM route_accounts ra
 		JOIN accounts a ON a.id = ra.account_id
 		WHERE ra.route_id = $1
@@ -500,7 +503,7 @@ func (s *Store) ListRoutePool(ctx context.Context, routeID uuid.UUID) ([]Account
 	var out []Account
 	for rows.Next() {
 		var a Account
-		if err := rows.Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.DefaultModel, &a.Weight, &a.Position, &a.QuotaRemainingPct, &a.QuotaResetAt, &a.QuotaUpdatedAt, &a.Quota5hRemainingPct, &a.Quota5hResetAt, &a.Quota7dRemainingPct, &a.Quota7dResetAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.DefaultModel, &a.Weight, &a.Position, &a.QuotaRemainingPct, &a.QuotaResetAt, &a.QuotaUpdatedAt, &a.Quota5hRemainingPct, &a.Quota5hResetAt, &a.Quota7dRemainingPct, &a.Quota7dResetAt, &a.Email, &a.ReauthRequiredAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -549,11 +552,13 @@ func (s *Store) AttachAccount(ctx context.Context, routeID, accountID uuid.UUID,
 func (s *Store) ListRouteAccounts(ctx context.Context, routeID uuid.UUID) ([]Account, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT a.id, a.project_id, a.vendor, a.name, a.auth_type, a.infisical_path, a.base_url, a.health, a.default_model,
-		       ra.weight, ra.position, a.quota_remaining_pct, a.quota_reset_at, a.quota_updated_at, a.quota_5h_remaining_pct, a.quota_5h_reset_at, a.quota_7d_remaining_pct, a.quota_7d_reset_at
+		       ra.weight, ra.position, a.quota_remaining_pct, a.quota_reset_at, a.quota_updated_at, a.quota_5h_remaining_pct, a.quota_5h_reset_at, a.quota_7d_remaining_pct, a.quota_7d_reset_at,
+		       a.email, a.reauth_required_at
 		FROM route_accounts ra
 		JOIN accounts a ON a.id = ra.account_id
 		WHERE ra.route_id = $1
 		  AND (a.cooldown_until IS NULL OR a.cooldown_until < now())
+		  AND a.reauth_required_at IS NULL
 		ORDER BY ra.position ASC, a.created_at ASC
 	`, routeID)
 	if err != nil {
@@ -563,7 +568,7 @@ func (s *Store) ListRouteAccounts(ctx context.Context, routeID uuid.UUID) ([]Acc
 	var out []Account
 	for rows.Next() {
 		var a Account
-		if err := rows.Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.DefaultModel, &a.Weight, &a.Position, &a.QuotaRemainingPct, &a.QuotaResetAt, &a.QuotaUpdatedAt, &a.Quota5hRemainingPct, &a.Quota5hResetAt, &a.Quota7dRemainingPct, &a.Quota7dResetAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.DefaultModel, &a.Weight, &a.Position, &a.QuotaRemainingPct, &a.QuotaResetAt, &a.QuotaUpdatedAt, &a.Quota5hRemainingPct, &a.Quota5hResetAt, &a.Quota7dRemainingPct, &a.Quota7dResetAt, &a.Email, &a.ReauthRequiredAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -605,9 +610,9 @@ func (s *Store) DeleteRoute(ctx context.Context, projectID uuid.UUID, slug strin
 func (s *Store) GetAccount(ctx context.Context, projectID, accountID uuid.UUID) (*Account, error) {
 	var a Account
 	err := s.db.QueryRow(ctx, `
-		SELECT id, project_id, vendor, name, auth_type, infisical_path, base_url, health, default_model
+		SELECT id, project_id, vendor, name, auth_type, infisical_path, base_url, health, default_model, email, reauth_required_at
 		FROM accounts WHERE id = $1 AND project_id = $2
-	`, accountID, projectID).Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.DefaultModel)
+	`, accountID, projectID).Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.DefaultModel, &a.Email, &a.ReauthRequiredAt)
 	if err != nil {
 		if isNoRows(err) {
 			return nil, fmt.Errorf("account not found")
@@ -730,10 +735,81 @@ func (s *Store) MarkAccountUnhealthy(ctx context.Context, accountID uuid.UUID, u
 	return err
 }
 
+// MarkAccountReauthRequired flags an account that needs a human re-link: it leaves routing until RelinkAccount
+// clears the flag. Only the first caller of an incident gets first=true (the conditional UPDATE matches one row
+// once, also across gateway replicas), so exactly one notification is sent. health = 'reauth' is for display only;
+// other writers overwrite health, the flag is reauth_required_at.
+func (s *Store) MarkAccountReauthRequired(ctx context.Context, accountID uuid.UUID) (first bool, err error) {
+	tag, err := s.db.Exec(ctx, `
+		UPDATE accounts SET reauth_required_at = now(), health = 'reauth'
+		WHERE id = $1 AND reauth_required_at IS NULL
+	`, accountID)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// SetAccountEmail records the vendor account email (as reported by the vendor at link or refresh time).
+func (s *Store) SetAccountEmail(ctx context.Context, accountID uuid.UUID, email string) error {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return nil
+	}
+	_, err := s.db.Exec(ctx, `UPDATE accounts SET email = $2 WHERE id = $1`, accountID, email)
+	return err
+}
+
+// GetAccountByName returns the project's account with this vendor and name (the UNIQUE key), or nil when none.
+func (s *Store) GetAccountByName(ctx context.Context, projectID uuid.UUID, vendorName, name string) (*Account, error) {
+	var a Account
+	err := s.db.QueryRow(ctx, `
+		SELECT id, project_id, vendor, name, auth_type, infisical_path, base_url, health, default_model, email, reauth_required_at
+		FROM accounts WHERE project_id = $1 AND vendor = $2 AND name = $3
+	`, projectID, vendorName, name).Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.DefaultModel, &a.Email, &a.ReauthRequiredAt)
+	if err != nil {
+		if isNoRows(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &a, nil
+}
+
+// RelinkAccount is a new login for an existing account (same project, vendor, name): it takes the new auth type,
+// secret path and base URL, keeps the default model unless one is given and the email unless a new one is known,
+// and puts the account back into routing (clears reauth_required_at and cooldown, health ok).
+func (s *Store) RelinkAccount(ctx context.Context, projectID, accountID uuid.UUID, authType, infisicalPath, baseURL, defaultModel, email string) (*Account, error) {
+	var emailArg *string
+	if e := strings.TrimSpace(email); e != "" {
+		emailArg = &e
+	}
+	var a Account
+	err := s.db.QueryRow(ctx, `
+		UPDATE accounts
+		SET auth_type = $3, infisical_path = $4, base_url = $5,
+		    default_model = CASE WHEN $6 = '' THEN default_model ELSE $6 END,
+		    email = COALESCE($7, email),
+		    reauth_required_at = NULL, cooldown_until = NULL, health = 'ok'
+		WHERE id = $1 AND project_id = $2
+		RETURNING id, project_id, vendor, name, auth_type, infisical_path, base_url, health, default_model, email, reauth_required_at
+	`, accountID, projectID, authType, infisicalPath, baseURL, strings.TrimSpace(defaultModel), emailArg).Scan(
+		&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.DefaultModel, &a.Email, &a.ReauthRequiredAt,
+	)
+	if err != nil {
+		if isNoRows(err) {
+			return nil, fmt.Errorf("account not found")
+		}
+		return nil, err
+	}
+	return &a, nil
+}
+
 func (s *Store) ListAllAccounts(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, project_id, vendor, name, auth_type, infisical_path, base_url, health,
-		       quota_remaining_pct, quota_reset_at, quota_updated_at, quota_5h_remaining_pct, quota_5h_reset_at, quota_7d_remaining_pct, quota_7d_reset_at
+		       quota_remaining_pct, quota_reset_at, quota_updated_at, quota_5h_remaining_pct, quota_5h_reset_at, quota_7d_remaining_pct, quota_7d_reset_at,
+		       email, reauth_required_at
 		FROM accounts ORDER BY created_at
 	`)
 	if err != nil {
@@ -743,7 +819,7 @@ func (s *Store) ListAllAccounts(ctx context.Context) ([]Account, error) {
 	var out []Account
 	for rows.Next() {
 		var a Account
-		if err := rows.Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.QuotaRemainingPct, &a.QuotaResetAt, &a.QuotaUpdatedAt, &a.Quota5hRemainingPct, &a.Quota5hResetAt, &a.Quota7dRemainingPct, &a.Quota7dResetAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.QuotaRemainingPct, &a.QuotaResetAt, &a.QuotaUpdatedAt, &a.Quota5hRemainingPct, &a.Quota5hResetAt, &a.Quota7dRemainingPct, &a.Quota7dResetAt, &a.Email, &a.ReauthRequiredAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -861,7 +937,7 @@ func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUserRow, error) {
 func (s *Store) ListAdminAccounts(ctx context.Context) ([]map[string]any, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT a.id, a.vendor, a.name, a.auth_type, a.health, a.quota_remaining_pct,
-		       a.quota_updated_at, u.login, p.id AS project_id
+		       a.quota_updated_at, u.login, p.id AS project_id, a.email, a.reauth_required_at
 		FROM accounts a
 		JOIN projects p ON p.id = a.project_id
 		JOIN users u ON u.id = p.owner_id
@@ -874,14 +950,16 @@ func (s *Store) ListAdminAccounts(ctx context.Context) ([]map[string]any, error)
 	var out []map[string]any
 	for rows.Next() {
 		var (
-			id, projectID     uuid.UUID
-			vendor, name      string
-			authType, health  string
-			login             string
-			quotaPct          *float64
-			quotaUpdated      *time.Time
+			id, projectID    uuid.UUID
+			vendor, name     string
+			authType, health string
+			login            string
+			quotaPct         *float64
+			quotaUpdated     *time.Time
+			email            *string
+			reauthAt         *time.Time
 		)
-		if err := rows.Scan(&id, &vendor, &name, &authType, &health, &quotaPct, &quotaUpdated, &login, &projectID); err != nil {
+		if err := rows.Scan(&id, &vendor, &name, &authType, &health, &quotaPct, &quotaUpdated, &login, &projectID, &email, &reauthAt); err != nil {
 			return nil, err
 		}
 		m := map[string]any{
@@ -894,6 +972,13 @@ func (s *Store) ListAdminAccounts(ctx context.Context) ([]map[string]any, error)
 		}
 		if quotaUpdated != nil {
 			m["quota_updated_at"] = quotaUpdated.UTC().Format(time.RFC3339)
+		}
+		if email != nil {
+			m["email"] = *email
+		}
+		if reauthAt != nil {
+			m["health"] = "reauth" // the flag, not the free-text health, decides
+			m["reauth_required_at"] = reauthAt.UTC().Format(time.RFC3339)
 		}
 		out = append(out, m)
 	}
@@ -973,7 +1058,8 @@ func (s *Store) InsertNotifyLog(ctx context.Context, kind, subject, body, status
 func (s *Store) ListAccounts(ctx context.Context, projectID uuid.UUID) ([]Account, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, project_id, vendor, name, auth_type, infisical_path, base_url, health, default_model,
-		       quota_remaining_pct, quota_reset_at, quota_updated_at, quota_5h_remaining_pct, quota_5h_reset_at, quota_7d_remaining_pct, quota_7d_reset_at
+		       quota_remaining_pct, quota_reset_at, quota_updated_at, quota_5h_remaining_pct, quota_5h_reset_at, quota_7d_remaining_pct, quota_7d_reset_at,
+		       email, reauth_required_at
 		FROM accounts WHERE project_id = $1 ORDER BY vendor, name
 	`, projectID)
 	if err != nil {
@@ -983,7 +1069,7 @@ func (s *Store) ListAccounts(ctx context.Context, projectID uuid.UUID) ([]Accoun
 	var out []Account
 	for rows.Next() {
 		var a Account
-		if err := rows.Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.DefaultModel, &a.QuotaRemainingPct, &a.QuotaResetAt, &a.QuotaUpdatedAt, &a.Quota5hRemainingPct, &a.Quota5hResetAt, &a.Quota7dRemainingPct, &a.Quota7dResetAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.DefaultModel, &a.QuotaRemainingPct, &a.QuotaResetAt, &a.QuotaUpdatedAt, &a.Quota5hRemainingPct, &a.Quota5hResetAt, &a.Quota7dRemainingPct, &a.Quota7dResetAt, &a.Email, &a.ReauthRequiredAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -1074,7 +1160,8 @@ func (s *Store) RefreshQuotasFromUsageForProject(ctx context.Context, projectID 
 func (s *Store) ListOAuthAccounts(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, project_id, vendor, name, auth_type, infisical_path, base_url, health,
-		       quota_remaining_pct, quota_reset_at, quota_updated_at, quota_5h_remaining_pct, quota_5h_reset_at, quota_7d_remaining_pct, quota_7d_reset_at
+		       quota_remaining_pct, quota_reset_at, quota_updated_at, quota_5h_remaining_pct, quota_5h_reset_at, quota_7d_remaining_pct, quota_7d_reset_at,
+		       email, reauth_required_at
 		FROM accounts
 		WHERE lower(coalesce(auth_type, '')) = 'oauth'
 		ORDER BY vendor, name
@@ -1086,7 +1173,7 @@ func (s *Store) ListOAuthAccounts(ctx context.Context) ([]Account, error) {
 	var out []Account
 	for rows.Next() {
 		var a Account
-		if err := rows.Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.QuotaRemainingPct, &a.QuotaResetAt, &a.QuotaUpdatedAt, &a.Quota5hRemainingPct, &a.Quota5hResetAt, &a.Quota7dRemainingPct, &a.Quota7dResetAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.QuotaRemainingPct, &a.QuotaResetAt, &a.QuotaUpdatedAt, &a.Quota5hRemainingPct, &a.Quota5hResetAt, &a.Quota7dRemainingPct, &a.Quota7dResetAt, &a.Email, &a.ReauthRequiredAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -1099,7 +1186,8 @@ func (s *Store) ListOAuthAccounts(ctx context.Context) ([]Account, error) {
 func (s *Store) ListOAuthAccountsByProject(ctx context.Context, projectID uuid.UUID) ([]Account, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, project_id, vendor, name, auth_type, infisical_path, base_url, health,
-		       quota_remaining_pct, quota_reset_at, quota_updated_at, quota_5h_remaining_pct, quota_5h_reset_at, quota_7d_remaining_pct, quota_7d_reset_at
+		       quota_remaining_pct, quota_reset_at, quota_updated_at, quota_5h_remaining_pct, quota_5h_reset_at, quota_7d_remaining_pct, quota_7d_reset_at,
+		       email, reauth_required_at
 		FROM accounts
 		WHERE project_id = $1 AND lower(coalesce(auth_type, '')) = 'oauth'
 		ORDER BY vendor, name
@@ -1111,7 +1199,7 @@ func (s *Store) ListOAuthAccountsByProject(ctx context.Context, projectID uuid.U
 	var out []Account
 	for rows.Next() {
 		var a Account
-		if err := rows.Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.QuotaRemainingPct, &a.QuotaResetAt, &a.QuotaUpdatedAt, &a.Quota5hRemainingPct, &a.Quota5hResetAt, &a.Quota7dRemainingPct, &a.Quota7dResetAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.ProjectID, &a.Vendor, &a.Name, &a.AuthType, &a.InfisicalPath, &a.BaseURL, &a.Health, &a.QuotaRemainingPct, &a.QuotaResetAt, &a.QuotaUpdatedAt, &a.Quota5hRemainingPct, &a.Quota5hResetAt, &a.Quota7dRemainingPct, &a.Quota7dResetAt, &a.Email, &a.ReauthRequiredAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)

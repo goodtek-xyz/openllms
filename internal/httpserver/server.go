@@ -46,8 +46,10 @@ func (s *Server) Router() http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(headAsGet)
 
-	r.Get("/health", s.handleHealth)
+	r.Get("/health", handleHealth)
 	r.Get("/ready", s.handleReady)
+	r.Get("/livez", handleHealth)
+	r.Get("/readyz", handleReadyz)
 	r.Get("/control/v1/meta", s.handleMeta)
 	r.Get("/auth/github", s.handleGitHubOAuthStart)
 	r.Get("/auth/github/callback", s.handleGitHubOAuthCallback)
@@ -194,11 +196,21 @@ func (s *Server) handleMeta(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+// handleHealth is liveness (/health, /livez): the process is up and serving. It never touches the database, also
+// during start-up.
+func handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
 		"service": "llms-gateway",
 	})
+}
+
+// handleReadyz is the readiness probe: the full router only serves once start-up has finished, so it answers ready;
+// Startup answers starting before that. It deliberately does not ping the database: a database switchover would
+// otherwise take every replica out of rotation at once, and statements already retry through brief outages.
+// /ready keeps its database ping for monitors that want it.
+func handleReadyz(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ready"})
 }
 
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
@@ -318,14 +330,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	accOut := make([]map[string]any, 0, len(accounts))
 	for _, a := range accounts {
-		glyph := "●"
-		if a.Health == "cooldown" {
-			glyph = "○"
-		} else if a.Health == "error" {
-			glyph = "✖"
-		}
+		health, glyph := accountHealth(a)
 		accOut = append(accOut, map[string]any{
-			"ref": a.Vendor + ":" + a.Name, "health": a.Health, "glyph": glyph, "id": a.ID.String(),
+			"ref": a.Vendor + ":" + a.Name, "health": health, "glyph": glyph, "id": a.ID.String(),
+			"email": a.Email, "reauth_required_at": a.ReauthRequiredAt,
 			"quota_remaining_pct": a.QuotaRemainingPct, "quota_reset_at": a.QuotaResetAt, "quota_updated_at": a.QuotaUpdatedAt,
 			"quota_5h_remaining_pct": a.Quota5hRemainingPct, "quota_5h_reset_at": a.Quota5hResetAt,
 			"quota_7d_remaining_pct": a.Quota7dRemainingPct, "quota_7d_reset_at": a.Quota7dResetAt,
@@ -347,6 +355,20 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// accountHealth is the account state shown to people: reauth when the account needs a re-link (the
+// reauth_required_at flag decides, not the free-text health column), else the stored health; glyph for the CLI.
+func accountHealth(a store.Account) (health, glyph string) {
+	switch {
+	case a.ReauthRequiredAt != nil:
+		return "reauth", "⚠"
+	case a.Health == "cooldown":
+		return a.Health, "○"
+	case a.Health == "error":
+		return a.Health, "✖"
+	}
+	return a.Health, "●"
+}
+
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 	ac, ok := authn.FromContext(r.Context())
 	if !ok {
@@ -360,8 +382,10 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(list))
 	for _, a := range list {
+		health, _ := accountHealth(a)
 		out = append(out, map[string]any{
-			"id": a.ID.String(), "vendor": a.Vendor, "name": a.Name, "health": a.Health, "base_url": a.BaseURL,
+			"id": a.ID.String(), "vendor": a.Vendor, "name": a.Name, "health": health, "base_url": a.BaseURL,
+			"email": a.Email, "reauth_required_at": a.ReauthRequiredAt,
 			"default_model":          a.DefaultModel,
 			"quota_remaining_pct":    a.QuotaRemainingPct, "quota_reset_at": a.QuotaResetAt,
 			"quota_5h_remaining_pct": a.Quota5hRemainingPct, "quota_5h_reset_at": a.Quota5hResetAt,
@@ -794,77 +818,23 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 		return
 	}
-	if !s.requirePlanCapacity(w, r, ac.ProjectID, "account") {
-		return
-	}
-	if s.secret == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"error": "infisical_not_configured",
-			"hint":  "See docs/ops/HUMAN-SETUP.md — set INFISICAL_PROJECT_ID, INFISICAL_CLIENT_ID, INFISICAL_CLIENT_SECRET",
-		})
-		return
-	}
-	var body struct {
-		Vendor       string `json:"vendor"`
-		Name         string `json:"name"`
-		APIKey       string `json:"api_key"`
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresAt    string `json:"expires_at"`
-		IDToken      string `json:"id_token"`
-		ChatGPTAcct  string `json:"chatgpt_account_id"`
-		AuthType     string `json:"auth_type"`
-		BaseURL      string `json:"base_url"`
-		DefaultModel string `json:"default_model"`
-	}
+	var body accountCreateInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Vendor == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "vendor required"})
 		return
 	}
-	if body.Name == "" {
-		body.Name = "default"
+	if !s.requireAccountCapacity(w, r, ac.ProjectID, body) {
+		return
 	}
-	if body.AuthType == "" {
-		if body.AccessToken != "" {
-			body.AuthType = "oauth"
-		} else {
-			body.AuthType = "api_key"
+	acc, relinked, code, errBody := s.createAccountForProjectInner(r.Context(), ac.ProjectID, body)
+	if acc == nil {
+		if code == http.StatusServiceUnavailable {
+			errBody["hint"] = "configure a secret store: LLMS_SECRETS_DIR (file) or INFISICAL_PROJECT_ID, INFISICAL_CLIENT_ID, INFISICAL_CLIENT_SECRET"
 		}
-	}
-	if body.AuthType == "api_key" && body.APIKey == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "api_key required for auth_type=api_key"})
+		writeJSON(w, code, errBody)
 		return
 	}
-	if body.AuthType == "oauth" && body.AccessToken == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "access_token required for auth_type=oauth"})
-		return
-	}
-	if body.BaseURL == "" {
-		body.BaseURL = vendor.DefaultBaseURLFor(body.Vendor, body.AuthType)
-	}
-	path := vendor.InfisicalPath(ac.ProjectID.String(), body.Vendor, body.Name)
-	cred := secrets.CredentialJSON{
-		APIKey: body.APIKey, AccessToken: body.AccessToken, RefreshToken: body.RefreshToken,
-		ExpiresAt: body.ExpiresAt, IDToken: body.IDToken, ChatGPTAccountID: body.ChatGPTAcct,
-	}
-	raw, _ := json.Marshal(cred)
-	if err := s.secret.Put(r.Context(), path, vendor.SecretName, string(raw)); err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "infisical_put_failed", "detail": err.Error()})
-		return
-	}
-	acc, err := s.store.CreateAccount(r.Context(), ac.ProjectID, body.Vendor, body.Name, body.AuthType, path, body.BaseURL, body.DefaultModel)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":             acc.ID.String(),
-		"vendor":         acc.Vendor,
-		"name":           acc.Name,
-		"infisical_path": acc.InfisicalPath,
-		"base_url":       acc.BaseURL,
-		"default_model":  acc.DefaultModel,
-	})
+	writeLinkedAccount(w, acc, relinked)
 }
 
 func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {

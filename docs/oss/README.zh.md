@@ -1,11 +1,11 @@
 # openllms
 
-[![GitHub stars](https://img.shields.io/github/stars/goodtekxyz/openllms?style=social)](https://github.com/goodtekxyz/openllms)
+[![GitHub stars](https://img.shields.io/github/stars/goodtek-xyz/openllms?style=social)](https://github.com/goodtek-xyz/openllms)
 
 把你已经在付的 ChatGPT / Claude（以及 Codex）席位，收成 **一个 OpenAI 兼容 API**。  
 按剩余额度分流量，避免一边烧光、一边闲着。
 
-自托管按 MIT **永久免费**。网关本身没有用量计费。觉得有用就 [★ Star](https://github.com/goodtekxyz/openllms)。
+自托管按 MIT **永久免费**。网关本身没有用量计费。觉得有用就 [★ Star](https://github.com/goodtek-xyz/openllms)。
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [MIT](LICENSE) · [托管版](https://llms.goodtek.xyz)
 
@@ -41,7 +41,7 @@
 ### A. Docker
 
 ```bash
-git clone https://github.com/goodtekxyz/openllms.git
+git clone https://github.com/goodtek-xyz/openllms.git
 cd openllms
 
 # 前台 — 日志在这个终端（Ctrl+C 停止）
@@ -82,7 +82,7 @@ x509: certificate signed by unknown authority
 ### B. Go（不用 Docker）
 
 ```bash
-git clone https://github.com/goodtekxyz/openllms.git
+git clone https://github.com/goodtek-xyz/openllms.git
 cd openllms
 mkdir -p data/secrets bin
 
@@ -134,6 +134,8 @@ curl -sS http://127.0.0.1:8080/ready
 ```
 
 `curl: Failed to connect` → 网关没起来（重做 §1，并保持该终端）。
+
+网关会在迁移和数据库连接完成之前先开始监听。在此期间 `/health` 和 `/livez` 立即返回 200，`/readyz` 返回 503 `{"status":"starting"}`（启动完成后返回 200 `{"status":"ready"}`），其他路径返回 503 `{"error":"starting"}`。编排器的 probe 请用 `/livez`（liveness）和 `/readyz`（readiness）。`/readyz` 不直接检查数据库，因此数据库切换期间不会让所有副本同时下线。用于监控的 `/ready` 仍然检查数据库。
 
 ---
 

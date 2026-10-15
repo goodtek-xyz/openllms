@@ -188,7 +188,7 @@ func TestAggregateCodexSSEWithHostedTools(t *testing.T) {
 }
 
 // TestAggregateCodexSSEDeltaPlusCompletedMessage: completed.output message is the
-// sole final body (TASK-024). Deltas must not concatenate with that message.
+// sole final body. Deltas must not concatenate with that message.
 func TestAggregateCodexSSEDeltaPlusCompletedMessage(t *testing.T) {
 	sse := strings.Join([]string{
 		`data: {"type":"response.output_text.delta","delta":"ok"}`,

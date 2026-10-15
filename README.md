@@ -1,11 +1,11 @@
 # openllms
 
-[![GitHub stars](https://img.shields.io/github/stars/goodtekxyz/openllms?style=social)](https://github.com/goodtekxyz/openllms)
+[![GitHub stars](https://img.shields.io/github/stars/goodtek-xyz/openllms?style=social)](https://github.com/goodtek-xyz/openllms)
 
 Turn ChatGPT / Claude (and Codex) seats you already pay for into **one OpenAI-compatible API**.  
 The gateway watches remaining quota and spreads traffic so one login doesn’t get burned while others sit idle.
 
-Self-host is **free forever** under MIT — the gateway itself has no usage meter. If this helps, [★ Star the repo](https://github.com/goodtekxyz/openllms).
+Self-host is **free forever** under MIT — the gateway itself has no usage meter. If this helps, [★ Star the repo](https://github.com/goodtek-xyz/openllms).
 
 [한국어](README.ko.md) · [日本語](README.ja.md) · [中文](README.zh.md) · [MIT](LICENSE) · [Hosted cloud](https://llms.goodtek.xyz)
 
@@ -41,7 +41,7 @@ Local bootstrap token used everywhere below: **`local-dev-bootstrap`**
 ### A. Docker
 
 ```bash
-git clone https://github.com/goodtekxyz/openllms.git
+git clone https://github.com/goodtek-xyz/openllms.git
 cd openllms
 
 # Foreground — logs stay in this terminal (Ctrl+C stops)
@@ -82,7 +82,7 @@ your network is intercepting TLS (common on corp laptops). Use **B. Go**, or inj
 ### B. Go (no Docker)
 
 ```bash
-git clone https://github.com/goodtekxyz/openllms.git
+git clone https://github.com/goodtek-xyz/openllms.git
 cd openllms
 mkdir -p data/secrets bin
 
@@ -134,6 +134,8 @@ Expected (shape may add fields, but status is what matters):
 ```
 
 If `curl: Failed to connect` → gateway isn’t running (start §1 again; don’t close that terminal).
+
+The gateway listens before migrations and the database connection are done. Until then `/health` and `/livez` already answer 200, `/readyz` answers 503 `{"status":"starting"}` (200 `{"status":"ready"}` afterwards) and other paths answer 503 `{"error":"starting"}`. For orchestrator probes use `/livez` (liveness) and `/readyz` (readiness; no database ping, so a database switchover does not take every replica out at once). `/ready` still pings the database for monitoring.
 
 ---
 

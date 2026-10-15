@@ -51,8 +51,13 @@ if command -v go >/dev/null 2>&1; then
     build_one $t
   done
 else
-  echo "==> host go missing; building CLI dist via golang container"
-  podman run --rm \
+  ctr="$(command -v docker || command -v podman || true)"
+  if [[ -z "$ctr" ]]; then
+    echo "host go missing and no docker/podman to build in a golang container" >&2
+    exit 1
+  fi
+  echo "==> host go missing; building CLI dist via golang container ($(basename "$ctr"))"
+  "$ctr" run --rm \
     -v "$REPO_ROOT:/src:Z" \
     -v "$OUT:/out:Z" \
     -w /src \

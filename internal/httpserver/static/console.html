@@ -357,6 +357,15 @@
       t.addEventListener('click', () => showTab(t.dataset.tab));
     });
 
+    function escText(v) {
+      return String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function healthLabel(a) {
+      if (a.health === 'reauth') return (a.glyph || '') + ' 재연결 필요 — 같은 이름으로 다시 연결하세요';
+      return (a.glyph || '') + ' ' + a.health;
+    }
+
     function healthClass(h) {
       if (h === 'ok') return 'health-ok';
       if (h === 'cooldown') return 'health-warn';
@@ -465,8 +474,9 @@
         ? state.accounts.map((a) => {
           const used = state.routes.filter((r) => (r.account_ids || []).includes(a.id)).map((r) => r.slug);
           const usedLabel = used.length ? used.join(', ') : '라우트 없음';
-          return '<tr><td><div class="cell-title">' + a.vendor + ':' + a.name + '</div><div class="cell-sub">' + a.auth_type + '</div></td>' +
-          '<td class="' + healthClass(a.health) + '">' + (a.glyph || '') + ' ' + a.health + '</td>' +
+          return '<tr><td><div class="cell-title">' + a.vendor + ':' + a.name + '</div><div class="cell-sub">' + a.auth_type +
+          (a.email ? ' · ' + escText(a.email) : '') + '</div></td>' +
+          '<td class="' + healthClass(a.health) + '">' + healthLabel(a) + '</td>' +
           '<td>' + (a.quota_remaining_pct != null ? Number(a.quota_remaining_pct).toFixed(0) + '%' : '—') + '</td>' +
           '<td><div class="cell-sub">' + usedLabel + '</div></td>' +
           '<td><button type="button" class="btn btn-secondary btn-sm" data-del-acc="' + a.id + '">제거</button></td></tr>';

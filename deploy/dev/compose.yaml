@@ -1,0 +1,27 @@
+# Local development database for `make run` (its default DATABASE_URL is
+# postgres://llms:llms@127.0.0.1:54329/llms). Postgres only; the gateway runs on the host.
+#   make dev-db        # start (docker compose -f deploy/dev/compose.yaml up -d --wait)
+#   make dev-db-down   # stop; data stays in the named volume (add -v to the compose command to drop it)
+# Same Postgres major/minor as the hosted deployment. Not for production use.
+name: llms-dev
+
+services:
+  postgres:
+    image: docker.io/library/postgres:16.15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: llms
+      POSTGRES_PASSWORD: llms
+      POSTGRES_DB: llms
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U llms -d llms"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:

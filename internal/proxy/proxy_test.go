@@ -3,10 +3,13 @@ package proxy_test
 import (
 	"context"
 	"encoding/json"
+	"github.com/goodtekxyz/openllms/internal/vendorauth"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -97,6 +100,10 @@ type memRouteStore struct {
 	cool     map[uuid.UUID]time.Time
 	routes   map[string]*store.Route
 	byRoute  map[uuid.UUID][]store.Account
+
+	mu     sync.Mutex
+	reauth map[uuid.UUID]time.Time
+	emails map[uuid.UUID]string
 }
 
 func (m *memRouteStore) pool(routeID uuid.UUID) []store.Account {
@@ -113,13 +120,44 @@ func (m *memRouteStore) ListRouteAccounts(ctx context.Context, routeID uuid.UUID
 	_ = ctx
 	now := time.Now()
 	var out []store.Account
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, a := range m.pool(routeID) {
 		if until, ok := m.cool[a.ID]; ok && until.After(now) {
+			continue
+		}
+		if _, ok := m.reauth[a.ID]; ok {
 			continue
 		}
 		out = append(out, a)
 	}
 	return out, nil
+}
+
+// MarkAccountReauthRequired mirrors the store's conditional UPDATE: only the first call per incident wins.
+func (m *memRouteStore) MarkAccountReauthRequired(ctx context.Context, accountID uuid.UUID) (bool, error) {
+	_ = ctx
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.reauth[accountID]; ok {
+		return false, nil
+	}
+	if m.reauth == nil {
+		m.reauth = map[uuid.UUID]time.Time{}
+	}
+	m.reauth[accountID] = time.Now()
+	return true, nil
+}
+
+func (m *memRouteStore) SetAccountEmail(ctx context.Context, accountID uuid.UUID, email string) error {
+	_ = ctx
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.emails == nil {
+		m.emails = map[uuid.UUID]string{}
+	}
+	m.emails[accountID] = email
+	return nil
 }
 
 func (m *memRouteStore) ListRoutePool(ctx context.Context, routeID uuid.UUID) ([]store.Account, error) {
@@ -722,8 +760,13 @@ func TestDispatchFailoverOn401UsesNextAccountDefaultModel(t *testing.T) {
 	if res.Attempts != 2 {
 		t.Fatalf("attempts=%d saw=%v", res.Attempts, sawModels)
 	}
+	// One 401 without a refresh token is only an observation: the seat cools down; it is flagged for re-link only
+	// when it answers 401 again after the cooldown (TestUnauthorizedWithoutRefreshTokenNeedsConfirmation).
 	if _, ok := st.cool[idCodex]; !ok {
 		t.Fatal("expected cooldown on dead codex seat")
+	}
+	if _, flagged := st.reauth[idCodex]; flagged {
+		t.Fatal("a single 401 must not flag the seat")
 	}
 	if len(sawModels) < 2 || !strings.Contains(sawModels[1], "claude-sonnet-4-6|Bearer sk-claude-ok") {
 		t.Fatalf("expected next seat default model, saw=%v", sawModels)
@@ -775,5 +818,66 @@ func TestDispatchSkipsClaudeSeatWithoutDefaultOnGptRoute(t *testing.T) {
 		if strings.HasSuffix(m, "Bearer sk-claude") {
 			t.Fatalf("claude seat without default must not be called, saw=%v", sawModels)
 		}
+	}
+}
+
+// Regression for the 2026-10 incident: an OAuth seat whose refresh token was revoked answered 401 on every request
+// and, with only a 5 min cooldown, stayed first in line for days. Now the rejected refresh takes it out of routing
+// (no cooldown), so the next request goes straight to the healthy seat.
+func TestDispatchRevokedOAuthSeatLeavesRouting(t *testing.T) {
+	tok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+	}))
+	defer tok.Close()
+	prev, prevHTTP := vendorauth.ClaudeTokenURL, vendorauth.HTTPClient
+	vendorauth.ClaudeTokenURL, vendorauth.HTTPClient = tok.URL, tok.Client()
+	t.Cleanup(func() { vendorauth.ClaudeTokenURL, vendorauth.HTTPClient = prev, prevHTTP })
+
+	var deadHits atomic.Int32
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer revoked-at" {
+			deadHits.Add(1)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "ok", "choices": []any{map[string]any{"message": map[string]string{"role": "assistant", "content": "hi"}}},
+			"usage": map[string]int{"prompt_tokens": 1, "completion_tokens": 1},
+		})
+	}))
+	defer up.Close()
+
+	sec := memory.New()
+	idDead, idOK := uuid.New(), uuid.New()
+	pathDead := vendor.InfisicalPath(uuid.New().String(), "codex", "revoked")
+	pathOK := vendor.InfisicalPath(uuid.New().String(), "deepseek", "ok")
+	_ = sec.Put(context.Background(), pathDead, vendor.SecretName, mustJSON(secrets.CredentialJSON{AccessToken: "revoked-at", RefreshToken: "revoked-rt"}))
+	_ = sec.Put(context.Background(), pathOK, vendor.SecretName, mustJSON(secrets.CredentialJSON{APIKey: "sk-ok"}))
+	st := &memRouteStore{accounts: []store.Account{
+		{ID: idDead, Vendor: "claude", AuthType: "oauth", Name: "revoked", InfisicalPath: pathDead, BaseURL: up.URL, Weight: 1, Position: 0},
+		{ID: idOK, Vendor: "deepseek", AuthType: "api_key", Name: "ok", InfisicalPath: pathOK, BaseURL: up.URL, Weight: 1, Position: 1},
+	}, cool: map[uuid.UUID]time.Time{}}
+	eng := &proxy.Engine{Store: st, Secrets: sec, HTTP: up.Client(), Selector: router.NewSelector()}
+	rt := &store.Route{ID: uuid.New(), Strategy: string(router.Sequential)}
+	body := []byte(`{"model":"m","messages":[{"role":"user","content":"hi"}]}`)
+
+	for i := 0; i < 3; i++ {
+		res, err := eng.ChatCompletions(context.Background(), uuid.New(), rt, body, proxy.DispatchMeta{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != 200 || res.AccountID != idOK {
+			t.Fatalf("request %d: status=%d account=%s", i, res.StatusCode, res.AccountID)
+		}
+	}
+	if deadHits.Load() != 1 {
+		t.Fatalf("revoked seat tried %d times, want 1 (it must leave routing after the rejected refresh)", deadHits.Load())
+	}
+	if _, cooled := st.cool[idDead]; cooled {
+		t.Fatal("a reauth seat needs no cooldown")
+	}
+	if _, ok := st.reauth[idDead]; !ok {
+		t.Fatal("revoked seat not flagged for re-link")
 	}
 }

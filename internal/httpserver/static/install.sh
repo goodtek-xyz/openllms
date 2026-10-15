@@ -6,7 +6,7 @@ set -euo pipefail
 
 DIST_BASE="${LLMS_DIST_BASE:-https://llms.goodtek.xyz}"
 DIST_BASE="${DIST_BASE%/}"
-REPO="${LLMS_INSTALL_REPO:-goodtekxyz/llms}"
+REPO="${LLMS_INSTALL_REPO:-goodtek-xyz/llms}"
 VERSION="${LLMS_VERSION:-latest}"
 BIN_DIR="${LLMS_BIN_DIR:-/usr/local/bin}"
 # Prefer gateway /dist unless LLMS_INSTALL_SOURCE=github

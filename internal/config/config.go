@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Config is runtime configuration for llms-gateway (D-007).
+// Config is runtime configuration for llms-gateway.
 type Config struct {
 	HTTPAddr    string
 	DatabaseURL string
@@ -18,7 +18,7 @@ type Config struct {
 	GitHubClientSecret string // web OAuth code exchange; device flow (CLI) does not need it
 	RateLimitPerMin    int
 
-	// Infisical — used from TASK-006 onward; validated when features need them.
+	// Infisical (managed secret store); validated when features need them.
 	InfisicalSiteURL      string
 	InfisicalProjectID    string
 	InfisicalEnvironment  string
@@ -27,7 +27,7 @@ type Config struct {
 	// SecretsDir is the local file-vault root when Infisical is not configured (OSS / self-host).
 	SecretsDir string
 
-	// Process-local TTL caches (no Redis). 0 disables that cache.
+	// Process-local TTL caches (no shared cache). 0 disables that cache.
 	SecretCacheTTL time.Duration
 	AuthCacheTTL   time.Duration
 	RouteCacheTTL  time.Duration
@@ -37,7 +37,7 @@ type Config struct {
 	AdminSessionSecret string
 	AdminCookieSecure  bool
 
-	// Signup notification email → hello@goodtek.xyz (Resend or SMTP).
+	// Signup / re-auth notification email (Resend or SMTP). Defaults per edition: defaultNotifyEmail*.
 	ResendAPIKey    string
 	SMTPHost        string
 	SMTPPort        string
@@ -45,8 +45,10 @@ type Config struct {
 	SMTPPass        string
 	NotifyEmailTo   string
 	NotifyEmailFrom string
+	// Optional Discord webhook (channel → Integrations → Webhooks) for ops alerts; empty = no Discord.
+	NotifyDiscordWebhookURL string
 
-	// Public site URL (prod or https://dev-llms.goodtek.xyz).
+	// Public site URL of this deployment (used for OAuth callbacks, webhooks and links).
 	PublicBaseURL string
 
 	// GAMeasurementID is the public Google Analytics measurement ID (G-…).
@@ -113,8 +115,8 @@ func Load() (Config, error) {
 		SMTPPort:              envOr("SMTP_PORT", "587"),
 		SMTPUser:              os.Getenv("SMTP_USER"),
 		SMTPPass:              os.Getenv("SMTP_PASS"),
-		NotifyEmailTo:         envOr("NOTIFY_EMAIL_TO", "hello@goodtek.xyz"),
-		NotifyEmailFrom:       envOr("NOTIFY_EMAIL_FROM", "llms@goodtek.xyz"),
+		NotifyEmailTo:         envOr("NOTIFY_EMAIL_TO", defaultNotifyEmailTo),
+		NotifyEmailFrom:       envOr("NOTIFY_EMAIL_FROM", defaultNotifyEmailFrom),
 		PublicBaseURL:         strings.TrimRight(envOr("PUBLIC_BASE_URL", defaultPublicBaseURL), "/"),
 		GAMeasurementID:       strings.TrimSpace(os.Getenv("GA_MEASUREMENT_ID")),
 		DistDir:               strings.TrimSpace(os.Getenv("LLMS_DIST_DIR")),
@@ -153,6 +155,7 @@ func Load() (Config, error) {
 		}
 	}
 	cfg.Polar.APIBase = polarBase
+	cfg.NotifyDiscordWebhookURL = strings.TrimSpace(os.Getenv("NOTIFY_DISCORD_WEBHOOK_URL"))
 	if cfg.BillingCheckoutSuccessURL == "" {
 		cfg.BillingCheckoutSuccessURL = cfg.PublicBaseURL + "/billing?ok=1"
 	}

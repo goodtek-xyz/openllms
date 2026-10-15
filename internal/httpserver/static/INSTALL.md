@@ -1,7 +1,7 @@
 # Install & register — llms.goodtek.xyz
 
 > 다른 머신·다른 서비스에서 **goodtek 클라우드** CLI를 설치하고 등록하는 절차입니다.  
-> 셀프호스트는 공개 엔진 [openllms](https://github.com/goodtekxyz/openllms)를 보세요.
+> 셀프호스트는 공개 엔진 [openllms](https://github.com/goodtek-xyz/openllms)를 보세요.
 
 **Gateway:** `https://llms.goodtek.xyz`  
 **사람용 제품 소개:** https://llms.goodtek.xyz/ (KO) · [/en](https://llms.goodtek.xyz/en) · [/ja](https://llms.goodtek.xyz/ja) · [/zh](https://llms.goodtek.xyz/zh)  
@@ -262,7 +262,7 @@ llms status --refresh    # Codex/Claude oauth 쿼터 재조회 후 보드
 | `GH_TOKEN` / `GITHUB_TOKEN` | GitHub Releases 폴백 시 |
 | `LLMS_BIN_DIR` | `install.sh` 설치 경로 |
 | `LLMS_VERSION` | GitHub 폴백 시 릴리스 태그 (기본 `latest`) |
-| `LLMS_INSTALL_REPO` | 기본 `goodtekxyz/llms` |
+| `LLMS_INSTALL_REPO` | 기본 `goodtek-xyz/llms` |
 
 자격 파일: `~/.config/llms/credentials.json` (mode `0600`).
 

@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Cache is a process-local TTL map. Not shared across gateway replicas (use Redis later if needed).
+// Cache is a process-local TTL map. Not shared across gateway replicas (use Valkey later if needed).
 type Cache[K comparable, V any] struct {
 	mu  sync.Mutex
 	ttl time.Duration
@@ -38,7 +38,21 @@ func (c *Cache[K, V]) Get(key K) (V, bool) {
 		return zero, false
 	}
 	if time.Now().After(e.exp) {
-		delete(c.m, key)
+		return zero, false // kept for Stale; replaced by the next Set or removed by Delete
+	}
+	return e.v, true
+}
+
+// Stale returns the last value set for key even if it has expired (serve-stale-on-error for a source that is down).
+func (c *Cache[K, V]) Stale(key K) (V, bool) {
+	var zero V
+	if !c.Enabled() {
+		return zero, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.m[key]
+	if !ok {
 		return zero, false
 	}
 	return e.v, true

@@ -7,7 +7,7 @@ import (
 
 // Anthropic OAuth (sk-ant-oat) Messages API requires Claude Code wire signals.
 // Undocumented; required by working third-party OAuth clients. Not full CLIProxy cloak.
-// See D-022 (minimal OAuth wire compatibility) and TASK-117.
+// Kept to the minimum the API needs to accept OAuth requests.
 const (
 	claudeCodeIdentity = "You are Claude Code, Anthropic's official CLI for Claude."
 	// Pinned for Messages + quota/models compatibility; bump when upstream rejects version.

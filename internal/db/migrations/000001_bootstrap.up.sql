@@ -1,4 +1,4 @@
--- Bootstrap schema for llms (TASK-003). Domain tables arrive in later TASKs.
+-- Bootstrap schema for llms. Domain tables arrive in later migrations.
 
 CREATE TABLE IF NOT EXISTS schema_meta (
     key   text PRIMARY KEY,

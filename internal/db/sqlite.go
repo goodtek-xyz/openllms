@@ -82,7 +82,7 @@ func MigrateSQLite(databaseURL string) error {
 		return fmt.Errorf("sqlite migrate init: %w", err)
 	}
 	defer m.Close()
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+	if err := up(m, src); err != nil {
 		return fmt.Errorf("sqlite migrate up: %w", err)
 	}
 	return nil

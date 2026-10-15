@@ -49,9 +49,6 @@ func (e *Engine) log() *slog.Logger {
 }
 
 func (e *Engine) oauthLock(accountID uuid.UUID) *sync.Mutex {
-	if e.refreshGates == nil {
-		e.refreshGates = &refreshGates{}
-	}
 	return e.refreshGates.lock(accountID.String())
 }
 
@@ -158,6 +155,7 @@ func (e *Engine) refreshOAuthCredential(ctx context.Context, acc *store.Account,
 		log.Warn("oauth refresh failed", "err", err)
 		return secrets.CredentialJSON{}, err
 	}
+	e.recordVendorEmail(ctx, acc, toks.Email)
 	cred := secrets.CredentialJSON{
 		AccessToken:      toks.AccessToken,
 		RefreshToken:     toks.RefreshToken,
@@ -167,6 +165,13 @@ func (e *Engine) refreshOAuthCredential(ctx context.Context, acc *store.Account,
 	}
 	if cred.RefreshToken == "" {
 		cred.RefreshToken = refreshTok
+	}
+	if cred.IDToken == "" {
+		// Refresh responses may omit id_token (OIDC Core §12.2); keep the stored one, the source of the account email.
+		cred.IDToken = old.IDToken
+		if fresh.IDToken != "" {
+			cred.IDToken = fresh.IDToken
+		}
 	}
 	if cred.ChatGPTAccountID == "" {
 		cred.ChatGPTAccountID = old.ChatGPTAccountID
@@ -201,8 +206,8 @@ func (e *Engine) RefreshExpiringOAuth(ctx context.Context, accounts []store.Acco
 	now := time.Now().UTC()
 	for i := range accounts {
 		acc := accounts[i]
-		if !strings.EqualFold(acc.AuthType, "oauth") {
-			skipped++
+		if !strings.EqualFold(acc.AuthType, "oauth") || acc.ReauthRequiredAt != nil {
+			skipped++ // a reauth account waits for its re-link; refreshing cannot help
 			continue
 		}
 		cred, _, err := e.loadCredential(ctx, &acc)
@@ -221,11 +226,26 @@ func (e *Engine) RefreshExpiringOAuth(ctx context.Context, accounts []store.Acco
 		}
 		if _, err := e.refreshOAuthCredential(ctx, &acc, cred); err != nil {
 			failed++
+			e.handleRefreshFailure(ctx, &acc, cred, err, &Result{})
 			continue
 		}
 		updated++
 	}
 	return updated, failed, skipped
+}
+
+// recordVendorEmail stores the account email the vendor reported in a refresh response (Claude account object, or the
+// id_token email claim for Codex). Only emails the gateway received from the vendor itself are stored: they decide
+// where reauth notifications go.
+func (e *Engine) recordVendorEmail(ctx context.Context, acc *store.Account, email string) {
+	if e.Store == nil || email == "" || (acc.Email != nil && *acc.Email == email) {
+		return
+	}
+	if err := e.Store.SetAccountEmail(ctx, acc.ID, email); err != nil {
+		e.log().Warn("account email update", "account_id", acc.ID.String(), "err", err)
+		return
+	}
+	acc.Email = &email
 }
 
 func expiresWithin(expiresAt string, now time.Time, lead time.Duration) bool {

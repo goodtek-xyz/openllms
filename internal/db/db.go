@@ -5,10 +5,13 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/source"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -52,10 +55,48 @@ func Migrate(databaseURL string) error {
 	}
 	defer m.Close()
 
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+	if err := up(m, src); err != nil {
 		return fmt.Errorf("migrate up: %w", err)
 	}
 	return nil
+}
+
+// up applies the pending migrations. A clean database already at a version newer than every embedded migration was
+// migrated by a newer gateway: schema changes are expand/contract (additive first), so this older binary runs on it
+// as is. It starts without migrating instead of failing ("no migration found for version N"), which is what lets a
+// release be rolled back. A dirty database still fails: it needs a human.
+func up(m *migrate.Migrate, src source.Driver) error {
+	last, err := lastVersion(src)
+	if err != nil {
+		return err
+	}
+	if v, dirty, verr := m.Version(); verr == nil && !dirty && v > last {
+		slog.Warn("database schema is newer than this binary's migrations; starting without migrating",
+			"db_version", v, "binary_version", last)
+		return nil
+	}
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return err
+	}
+	return nil
+}
+
+// lastVersion returns the newest migration version in src.
+func lastVersion(src source.Driver) (uint, error) {
+	v, err := src.First()
+	if err != nil {
+		return 0, fmt.Errorf("first migration: %w", err)
+	}
+	for {
+		next, err := src.Next(v)
+		if errors.Is(err, os.ErrNotExist) {
+			return v, nil
+		}
+		if err != nil {
+			return 0, fmt.Errorf("next migration after %d: %w", v, err)
+		}
+		v = next
+	}
 }
 
 func Ping(ctx context.Context, pool *pgxpool.Pool) error {

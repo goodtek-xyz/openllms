@@ -11,3 +11,6 @@ docs/
 .vibeops/
 .env
 .env.*
+# Root outputs of `go build ./cmd/llms` and `go build ./cmd/llms-gateway`
+/llms
+/llms-gateway

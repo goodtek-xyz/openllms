@@ -384,7 +384,7 @@ func cmdLogin() *cobra.Command {
 				}
 			}
 			if clientID == "" {
-				return fmt.Errorf("GITHUB_CLIENT_ID required (set env or ensure gateway /control/v1/meta exposes it — see docs/ops/HUMAN-SETUP.md §2)")
+				return fmt.Errorf("GITHUB_CLIENT_ID required (set env or ensure gateway /control/v1/meta exposes it — register a GitHub OAuth App with Device Flow enabled)")
 			}
 			dc, uc, uri, interval, err := githubauth.DeviceStart(ctx, clientID)
 			if err != nil {
