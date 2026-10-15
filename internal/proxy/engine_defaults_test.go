@@ -17,7 +17,7 @@ func TestEngineDefaultsConcurrent(t *testing.T) {
 		e := &Engine{}
 		var (
 			wg    sync.WaitGroup
-			affs  [2]*Affinity
+			affs  [2]SessionAffinity
 			sels  [2]any
 			locks [2]*sync.Mutex
 		)

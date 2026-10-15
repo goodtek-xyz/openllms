@@ -26,7 +26,7 @@
 
 | | **A. Docker** | **B. Go** |
 |--|---------------|-----------|
-| 必要 | Docker Desktop / Engine + Compose | Go ツールチェーン（`go.mod` → 現在 **1.24**） |
+| 必要 | Docker Desktop / Engine + Compose | Go ツールチェーン（`go.mod` → 現在 **1.27**） |
 | 向いているとき | コマンド一本で済ませたい | 社内 TLS で Docker 内 `go mod` が落ちる |
 | データ | Docker ボリューム `oss-data` | `./data/llms.db` + `./data/secrets/` |
 | 待ち受け | `127.0.0.1:8080` | `127.0.0.1:8080`（自分で設定） |

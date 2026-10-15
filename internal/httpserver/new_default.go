@@ -9,7 +9,6 @@ import (
 	"github.com/goodtek-xyz/openllms/internal/config"
 	"github.com/goodtek-xyz/openllms/internal/modelcatalog"
 	"github.com/goodtek-xyz/openllms/internal/proxy"
-	"github.com/goodtek-xyz/openllms/internal/ratelimit"
 	"github.com/goodtek-xyz/openllms/internal/secrets"
 	"github.com/goodtek-xyz/openllms/internal/store"
 	"github.com/goodtek-xyz/openllms/internal/userauth"
@@ -26,12 +25,13 @@ func New(st *store.Store, cfg config.Config, secret secrets.Client) *Server {
 		TTL:    12 * time.Hour,
 		Secure: cfg.AdminCookieSecure,
 	}
+	limiter, affinity := sharedState(cfg)
 	return &Server{
 		cfg:           cfg,
 		store:         st,
 		secret:        secret,
-		proxy:         &proxy.Engine{Store: st, Secrets: secret, HTTP: &http.Client{Timeout: 120 * time.Second}},
-		limit:         ratelimit.NewMemory(cfg.RateLimitPerMin, time.Minute),
+		proxy:         &proxy.Engine{Store: st, Secrets: secret, HTTP: &http.Client{Timeout: 120 * time.Second}, Affinity: affinity},
+		limit:         limiter,
 		models:        modelcatalog.New(secret, &http.Client{Timeout: 12 * time.Second}, modelcatalog.DefaultCacheTTL),
 		admin:         disabledAdmin{},
 		user:          user,

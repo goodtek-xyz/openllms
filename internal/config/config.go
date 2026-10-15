@@ -17,6 +17,9 @@ type Config struct {
 	GitHubClientID     string
 	GitHubClientSecret string // web OAuth code exchange; device flow (CLI) does not need it
 	RateLimitPerMin    int
+	// ValkeyURL (valkey:// / rediss://…): share rate-limit counters and session affinity across gateway replicas.
+	// Empty: both stay process-local.
+	ValkeyURL string
 
 	// Infisical (managed secret store); validated when features need them.
 	InfisicalSiteURL      string
@@ -98,6 +101,7 @@ func Load() (Config, error) {
 		GitHubClientID:        os.Getenv("GITHUB_CLIENT_ID"),
 		GitHubClientSecret:    os.Getenv("GITHUB_CLIENT_SECRET"),
 		RateLimitPerMin:       envInt("RATE_LIMIT_PER_MIN", 120),
+		ValkeyURL:             strings.TrimSpace(os.Getenv("VALKEY_URL")),
 		InfisicalSiteURL:      envOr("INFISICAL_SITE_URL", ""),
 		InfisicalProjectID:    os.Getenv("INFISICAL_PROJECT_ID"),
 		InfisicalEnvironment:  envOr("INFISICAL_ENVIRONMENT", "dev"),

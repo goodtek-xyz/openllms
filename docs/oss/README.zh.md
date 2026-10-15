@@ -26,7 +26,7 @@
 
 | | **A. Docker** | **B. Go** |
 |--|---------------|-----------|
-| 需要 | Docker Desktop / Engine + Compose | Go 工具链（`go.mod` → 当前 **1.24**） |
+| 需要 | Docker Desktop / Engine + Compose | Go 工具链（`go.mod` → 当前 **1.27**） |
 | 适合 | 想一条命令搞定 | 公司网 TLS 导致 Docker 内 `go mod` 失败 |
 | 数据 | Docker 卷 `oss-data` | `./data/llms.db` + `./data/secrets/` |
 | 监听 | `127.0.0.1:8080` | `127.0.0.1:8080`（自己配置） |

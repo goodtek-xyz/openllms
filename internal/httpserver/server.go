@@ -31,7 +31,7 @@ type Server struct {
 	store         *store.Store
 	secret        secrets.Client
 	proxy         *proxy.Engine
-	limit         *ratelimit.MemoryLimiter
+	limit         ratelimit.Limiter
 	models        *modelcatalog.Discoverer
 	admin         AdminAuth
 	user          *userauth.Manager

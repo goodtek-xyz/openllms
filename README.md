@@ -26,7 +26,7 @@ This repo is the open engine behind [llms](https://llms.goodtek.xyz) (hosted by 
 
 | | **A. Docker** | **B. Go** |
 |--|---------------|-----------|
-| Need | Docker Desktop / Engine + Compose | Go toolchain (`go.mod` → currently **1.24**) |
+| Need | Docker Desktop / Engine + Compose | Go toolchain (`go.mod` → currently **1.27**) |
 | Best when | You want one command | Corp TLS breaks `go mod` inside Docker builds |
 | Data | Docker volume `oss-data` | `./data/llms.db` + `./data/secrets/` |
 | Listen | `127.0.0.1:8080` | `127.0.0.1:8080` (you set it) |

@@ -26,7 +26,7 @@
 
 | | **A. Docker** | **B. Go** |
 |--|---------------|-----------|
-| 필요 | Docker Desktop / Engine + Compose | Go 툴체인 (`go.mod` → 현재 **1.24**) |
+| 필요 | Docker Desktop / Engine + Compose | Go 툴체인 (`go.mod` → 현재 **1.27**) |
 | 이럴 때 | 명령 한 줄로 끝내고 싶을 때 | 회사망 TLS 때문에 Docker 안 `go mod`가 깨질 때 |
 | 데이터 | Docker 볼륨 `oss-data` | `./data/llms.db` + `./data/secrets/` |
 | 리슨 | `127.0.0.1:8080` | `127.0.0.1:8080` (직접 설정) |

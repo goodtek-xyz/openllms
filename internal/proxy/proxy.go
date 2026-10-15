@@ -68,7 +68,7 @@ type Engine struct {
 	Secrets  secrets.Client
 	HTTP     *http.Client
 	Selector *router.Selector
-	Affinity *Affinity
+	Affinity SessionAffinity // process-local (NewAffinity) unless the server shares it (NewSharedAffinity)
 	Log      *slog.Logger
 	Reauth   ReauthNotifier // optional; told once per incident when an account needs a re-link
 
@@ -94,7 +94,7 @@ func (e *Engine) defaults() {
 	})
 }
 
-func (e *Engine) affinity() *Affinity {
+func (e *Engine) affinity() SessionAffinity {
 	e.defaults()
 	return e.Affinity
 }
