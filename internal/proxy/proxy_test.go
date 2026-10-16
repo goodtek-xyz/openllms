@@ -931,3 +931,56 @@ func TestClaudeOAuthChatBridgeInjectsWire(t *testing.T) {
 		t.Fatalf("API key linked as OAuth got the wire: system=%v headers=%v", got.body["system"], got.hdr)
 	}
 }
+
+// Anthropic-native Messages go only to Claude seats: a session made sticky to a Codex seat by an earlier chat request
+// (same first message → same session key) must not pull the Messages request onto it (Codex answers 404 there).
+// Without a Claude seat the route answers 400 with a hint instead of calling an upstream that cannot serve it.
+func TestAnthropicMessagesOnlyUsesClaudeSeats(t *testing.T) {
+	var hits []string
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits = append(hits, r.URL.Path+"|"+r.Header.Get("Authorization"))
+		if r.Header.Get("Authorization") == "Bearer codex-at" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"detail":"Not Found"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"type":"message","role":"assistant","content":[{"type":"text","text":"pong"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer up.Close()
+	sec := memory.New()
+	idCodex, idClaude := uuid.New(), uuid.New()
+	pathCodex := vendor.InfisicalPath(uuid.New().String(), "codex", "c")
+	pathClaude := vendor.InfisicalPath(uuid.New().String(), "claude", "a")
+	_ = sec.Put(context.Background(), pathCodex, vendor.SecretName, mustJSON(secrets.CredentialJSON{AccessToken: "codex-at"}))
+	_ = sec.Put(context.Background(), pathClaude, vendor.SecretName, mustJSON(secrets.CredentialJSON{AccessToken: "sk-ant-oat01-a"}))
+	codex := store.Account{ID: idCodex, Vendor: "codex", AuthType: "oauth", Name: "c", InfisicalPath: pathCodex, BaseURL: up.URL, Weight: 1, Position: 0, DefaultModel: "gpt-5.6-luna"}
+	claude := store.Account{ID: idClaude, Vendor: "claude", AuthType: "oauth", Name: "a", InfisicalPath: pathClaude, BaseURL: up.URL, Weight: 1, Position: 1}
+	body := []byte(`{"model":"claude-sonnet-5-5","max_tokens":16,"messages":[{"role":"user","content":"Reply with exactly the word: pong"}]}`)
+	meta := proxy.DispatchMeta{SessionKey: proxy.SessionKey(nil, body)}
+	rt := &store.Route{ID: uuid.New(), Strategy: string(router.Sequential)}
+
+	aff := proxy.NewAffinity(time.Hour)
+	aff.Set(meta.SessionKey, idCodex) // sticky from an earlier chat request on the Codex seat
+	st := &memRouteStore{accounts: []store.Account{codex, claude}, cool: map[uuid.UUID]time.Time{}}
+	eng := &proxy.Engine{Store: st, Secrets: sec, HTTP: up.Client(), Selector: router.NewSelector(), Affinity: aff}
+	res, err := eng.AnthropicMessages(context.Background(), rt, body, meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != 200 || res.AccountID != idClaude || res.Attempts != 1 {
+		t.Fatalf("status=%d account=%s attempts=%d hits=%v body=%s", res.StatusCode, res.AccountID, res.Attempts, hits, res.Body)
+	}
+	for _, h := range hits {
+		if strings.HasSuffix(h, "Bearer codex-at") {
+			t.Fatalf("Codex seat was called for Messages: %v", hits)
+		}
+	}
+
+	hits = nil
+	eng = &proxy.Engine{Store: &memRouteStore{accounts: []store.Account{codex}, cool: map[uuid.UUID]time.Time{}}, Secrets: sec, HTTP: up.Client(), Selector: router.NewSelector()}
+	res, _ = eng.AnthropicMessages(context.Background(), rt, body, meta)
+	if res.StatusCode != http.StatusBadRequest || !strings.Contains(string(res.Body), "needs a Claude account") || len(hits) != 0 {
+		t.Fatalf("Codex-only route: status=%d body=%s hits=%v", res.StatusCode, res.Body, hits)
+	}
+}

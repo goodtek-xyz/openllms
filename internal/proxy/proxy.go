@@ -110,27 +110,42 @@ type DispatchMeta struct {
 }
 
 func (e *Engine) ChatCompletions(ctx context.Context, projectID uuid.UUID, rt *store.Route, body []byte, meta DispatchMeta) (*Result, error) {
-	return e.dispatchWithFallbacks(ctx, projectID, rt, body, meta, e.callOpenAI)
+	return e.dispatchWithFallbacks(ctx, projectID, rt, body, meta, e.callOpenAI, nil)
 }
 
 func (e *Engine) AnthropicMessages(ctx context.Context, rt *store.Route, body []byte, meta DispatchMeta) (*Result, error) {
-	return e.dispatchWithFallbacks(ctx, rt.ProjectID, rt, body, meta, e.callAnthropic)
+	return e.dispatchWithFallbacks(ctx, rt.ProjectID, rt, body, meta, e.callAnthropic, messagesAccounts)
 }
 
 // ImagesGenerations proxies OpenAI-compatible POST /v1/images/generations through the route pool.
 // OpenAI API-key and Codex/OpenAI OAuth use ChatGPT/OpenAI /responses + image_generation.
 func (e *Engine) ImagesGenerations(ctx context.Context, projectID uuid.UUID, rt *store.Route, body []byte, meta DispatchMeta) (*Result, error) {
-	return e.dispatchWithFallbacks(ctx, projectID, rt, body, meta, e.callImages, filterImageCapableAccounts)
+	return e.dispatchWithFallbacks(ctx, projectID, rt, body, meta, e.callImages, imageAccounts)
 }
 
 func (e *Engine) CallImagesAccountForTest(ctx context.Context, acc *store.Account, body []byte) (*Result, error) {
 	return e.callImages(ctx, acc, body)
 }
 
-func filterImageCapableAccounts(accounts []store.Account) []store.Account {
+// accountFilter limits a request to the seats whose upstream speaks its API.
+type accountFilter struct {
+	keep func(*store.Account) bool
+	hint string // returned when the route has no such seat
+}
+
+var (
+	imageAccounts = &accountFilter{keep: accountSupportsImages,
+		hint: "for images, attach an OpenAI-compatible API key account (not Claude/Codex OAuth)"}
+	// Anthropic-native Messages go to Claude seats only: other upstreams have no /v1/messages (a Codex seat answers
+	// 404), and a sticky session from a chat request must not pull a Messages request onto one.
+	messagesAccounts = &accountFilter{keep: isClaudeAccount,
+		hint: "Anthropic Messages (/v1/messages) needs a Claude account on this route; other vendors use /v1/chat/completions"}
+)
+
+func (f *accountFilter) apply(accounts []store.Account) []store.Account {
 	out := make([]store.Account, 0, len(accounts))
 	for i := range accounts {
-		if accountSupportsImages(&accounts[i]) {
+		if f.keep(&accounts[i]) {
 			out = append(out, accounts[i])
 		}
 	}
@@ -159,8 +174,8 @@ func fallbackSlugs(cfg []byte) []string {
 	return c.FallbackSlugs
 }
 
-func (e *Engine) dispatchWithFallbacks(ctx context.Context, projectID uuid.UUID, rt *store.Route, body []byte, meta DispatchMeta, call callFn, accountFilter ...func([]store.Account) []store.Account) (*Result, error) {
-	res, err := e.dispatch(ctx, rt, body, meta, call, accountFilter...)
+func (e *Engine) dispatchWithFallbacks(ctx context.Context, projectID uuid.UUID, rt *store.Route, body []byte, meta DispatchMeta, call callFn, filter *accountFilter) (*Result, error) {
+	res, err := e.dispatch(ctx, rt, body, meta, call, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +191,7 @@ func (e *Engine) dispatchWithFallbacks(ctx context.Context, projectID uuid.UUID,
 		if err != nil || frt == nil {
 			continue
 		}
-		fres, ferr := e.dispatch(ctx, frt, body, meta, call, accountFilter...)
+		fres, ferr := e.dispatch(ctx, frt, body, meta, call, filter)
 		if ferr != nil {
 			return nil, ferr
 		}
@@ -217,13 +232,13 @@ func filterParallelAccounts(accounts []store.Account, allowOAuth bool) []store.A
 	return out
 }
 
-func (e *Engine) dispatchParallel(ctx context.Context, rt *store.Route, accounts []store.Account, body []byte, meta DispatchMeta, sessionKey string, sticky uuid.UUID, call callFn) (*Result, error) {
+func (e *Engine) dispatchParallel(ctx context.Context, rt *store.Route, accounts []store.Account, body []byte, meta DispatchMeta, sessionKey string, sticky uuid.UUID, call callFn, filter *accountFilter) (*Result, error) {
 	pool := filterParallelAccounts(accounts, parallelAllowOAuth(rt.Config))
 	if len(pool) == 0 {
 		// Safe fallback: sequential on original list
 		rt2 := *rt
 		rt2.Strategy = string(router.Sequential)
-		return e.dispatch(ctx, &rt2, body, meta, call)
+		return e.dispatch(ctx, &rt2, body, meta, call, filter) // keep the API filter on the fallback
 	}
 	if sticky != uuid.Nil {
 		pool = router.PreferAccount(pool, sticky)
@@ -332,7 +347,7 @@ func (e *Engine) dispatchParallel(ctx context.Context, rt *store.Route, accounts
 	return last, nil
 }
 
-func (e *Engine) dispatch(ctx context.Context, rt *store.Route, body []byte, meta DispatchMeta, call callFn, accountFilter ...func([]store.Account) []store.Account) (*Result, error) {
+func (e *Engine) dispatch(ctx context.Context, rt *store.Route, body []byte, meta DispatchMeta, call callFn, filter *accountFilter) (*Result, error) {
 	if e.Store == nil {
 		return &Result{StatusCode: http.StatusInternalServerError, Error: "no_store"}, nil
 	}
@@ -340,12 +355,11 @@ func (e *Engine) dispatch(ctx context.Context, rt *store.Route, body []byte, met
 	if err != nil {
 		return nil, err
 	}
-	filtered := len(accountFilter) > 0 && accountFilter[0] != nil
-	if filtered {
-		accounts = accountFilter[0](accounts)
+	if filter != nil {
+		accounts = filter.apply(accounts)
 	}
 	if len(accounts) == 0 {
-		return e.emptyAccountsResult(ctx, rt, filtered)
+		return e.emptyAccountsResult(ctx, rt, filter)
 	}
 	accounts = FilterServableAccounts(accounts, body, rt.DefaultModel)
 
@@ -361,7 +375,7 @@ func (e *Engine) dispatch(ctx context.Context, rt *store.Route, body []byte, met
 	sticky, stickyOK := e.affinity().Get(sessionKey)
 
 	if strategy == router.Parallel {
-		return e.dispatchParallel(ctx, rt, accounts, body, meta, sessionKey, sticky, call)
+		return e.dispatchParallel(ctx, rt, accounts, body, meta, sessionKey, sticky, call, filter)
 	}
 
 	sel := e.selector()
@@ -476,11 +490,11 @@ func (e *Engine) dispatch(ctx context.Context, rt *store.Route, body []byte, met
 	}
 }
 
-func (e *Engine) emptyAccountsResult(ctx context.Context, rt *store.Route, filtered bool) (*Result, error) {
-	if filtered {
+func (e *Engine) emptyAccountsResult(ctx context.Context, rt *store.Route, filter *accountFilter) (*Result, error) {
+	if filter != nil {
 		body, _ := json.Marshal(map[string]string{
 			"error": "route has no accounts",
-			"hint":  "for images, attach an OpenAI-compatible API key account (not Claude/Codex OAuth)",
+			"hint":  filter.hint,
 		})
 		return &Result{StatusCode: http.StatusBadRequest, Body: body, Error: "no_accounts"}, nil
 	}
