@@ -1,0 +1,11 @@
+# Version updates for the actions this repository's release workflow pins by commit SHA.
+# This repository is published from an upstream source tree: an update is applied there and published here, which
+# closes the Dependabot pull request. cooldown: only versions released at least 14 days ago; security updates are
+# not delayed (https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 14 }
+    commit-message: { prefix: chore, include: scope }

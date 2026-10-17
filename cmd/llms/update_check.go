@@ -105,9 +105,8 @@ func updateCheckDisabled() bool {
 	return false
 }
 
+// fetchLatestVersion reads {base}/dist/VERSION within ctx (the background notice bounds it; `llms update` does not).
 func fetchLatestVersion(ctx context.Context, base string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, updateCheckTimeout)
-	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+"/dist/VERSION", nil)
 	if err != nil {
 		return "", err
@@ -117,6 +116,9 @@ func fetchLatestVersion(ctx context.Context, base string) (string, error) {
 		return "", err
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		return "", errNoDist
+	}
 	if res.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("dist VERSION: HTTP %d", res.StatusCode)
 	}
@@ -138,7 +140,9 @@ func latestVersion(ctx context.Context, base string, now time.Time, force bool) 
 	if ok && !force && now.Sub(cached.CheckedAt) < updateCheckTTL {
 		return cached.Latest
 	}
-	v, err := fetchLatestVersion(ctx, base)
+	fctx, cancel := context.WithTimeout(ctx, updateCheckTimeout)
+	v, err := fetchLatestVersion(fctx, base)
+	cancel()
 	if err != nil {
 		// Record the attempt so an offline gateway is not retried on every command.
 		saveUpdateCache(updateCache{CheckedAt: now, Latest: cached.Latest})
@@ -153,7 +157,7 @@ func updateNotice(current, latest, base string) string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"\nA newer llms CLI is available: %s (installed %s)\n  Update: curl -fsSL %s/install.sh | bash\n",
+		"\nA newer llms CLI is available: %s (installed %s)\n  Update: llms update  (or: curl -fsSL %s/install.sh | bash)\n",
 		latest, current, strings.TrimRight(base, "/"),
 	)
 }

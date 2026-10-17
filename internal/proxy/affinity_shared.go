@@ -40,8 +40,7 @@ func (s *SharedAffinity) Get(key string) (uuid.UUID, bool) {
 	if s == nil || key == "" {
 		return uuid.Nil, false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
-	defer cancel()
+	ctx := context.Background() // bounded by the store's own request timeout (valkey.DefaultRequestTimeout)
 	v, err := s.store.Get(ctx, s.prefix+key)
 	if err != nil {
 		return s.local.Get(key) // also covers "not set": the local copy is at most as fresh as the store
@@ -58,7 +57,6 @@ func (s *SharedAffinity) Set(key string, accountID uuid.UUID) {
 		return
 	}
 	s.local.Set(key, accountID)
-	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
-	defer cancel()
+	ctx := context.Background() // bounded by the store's own request timeout (valkey.DefaultRequestTimeout)
 	_ = s.store.SetPX(ctx, s.prefix+key, accountID.String(), s.ttl)
 }

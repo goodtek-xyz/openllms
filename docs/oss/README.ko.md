@@ -286,6 +286,14 @@ go build -o bin/llms ./cmd/llms
 | `steward` | 남은량 × 리셋 긴급도 (OAuth 쪽 기울기) |
 | `parallel` | 빌드/플랜에서 켜진 경우 팬아웃 |
 
+미리 빌드된 바이너리: [GitHub Releases](https://github.com/goodtek-xyz/openllms/releases) — Release마다 `SHA256SUMS`와
+빌드 출처 증명이 함께 있습니다(`gh attestation verify llms_<os>_<arch> --repo goodtek-xyz/openllms`).
+
+CLI 업데이트: `llms update`는 게이트웨이가 `/dist`에 내놓은 빌드로 실행 중인 바이너리를 그 자리에서 바꿉니다
+(`/dist/SHA256SUMS`로 검증하고, 실패하면 기존 바이너리를 그대로 둡니다). PATH에 다른 `llms`가 먼저 있으면 알려 줍니다.
+`/dist`는 `CLI_DIST=1`로 빌드한 게이트웨이 이미지가 제공합니다. 없으면 `go build -o bin/llms ./cmd/llms`
+(또는 `go install github.com/goodtek-xyz/openllms/cmd/llms@latest`)로 다시 빌드합니다.
+
 호스팅용 (`llms login`, `llms plan`, `llms free`, `llms upgrade`)은 [llms.goodtek.xyz](https://llms.goodtek.xyz)용입니다. 로컬 OSS는 부트스트랩 후 무시해도 됩니다.
 
 ---

@@ -112,7 +112,7 @@ func (f *fakeServer) commands() []string {
 
 func TestClientCommands(t *testing.T) {
 	f := startFake(t, "s3cret")
-	c, err := New("valkey://:s3cret@"+f.ln.Addr().String()+"/2", time.Second)
+	c, err := New("valkey://:s3cret@" + f.ln.Addr().String() + "/2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,38 +143,64 @@ func TestClientCommands(t *testing.T) {
 
 func TestClientWrongPasswordAndServerErrors(t *testing.T) {
 	f := startFake(t, "right")
-	c, _ := New("redis://wrong@"+f.ln.Addr().String(), time.Second)
+	c, _ := New("redis://wrong@" + f.ln.Addr().String())
 	if _, err := c.Incr(context.Background(), "k"); err == nil || !strings.Contains(err.Error(), "WRONGPASS") {
 		t.Fatalf("wrong password: %v", err)
 	}
 }
 
+// After a failed call the client skips calls for a back-off that grows like GLIDE's reconnect delays (ceiling
+// 200 ms, doubling, capped at 3200 ms; full jitter below the ceiling), and any answer resets it.
 func TestClientBacksOffWhenDown(t *testing.T) {
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
 	addr := ln.Addr().String()
 	_ = ln.Close() // nothing listens: dials fail
-	c, _ := New("valkey://"+addr, 100*time.Millisecond)
+	c, _ := New("valkey://" + addr)
 	now := time.Unix(1000, 0)
 	c.now = func() time.Time { return now }
-	if _, err := c.Incr(context.Background(), "k"); err == nil || errors.Is(err, ErrDown) {
-		t.Fatalf("first call: %v, want a dial error", err)
+	ceilings := []time.Duration{200, 400, 800, 1600, 3200, 3200, 3200}
+	for i, ceil := range ceilings {
+		ceil *= time.Millisecond
+		if _, err := c.Incr(context.Background(), "k"); err == nil || errors.Is(err, ErrDown) {
+			t.Fatalf("attempt %d: %v, want a dial error", i+1, err)
+		}
+		wait := c.downUntil.Sub(now)
+		if wait < 0 || wait > ceil {
+			t.Fatalf("attempt %d: back-off %v, want within [0, %v]", i+1, wait, ceil)
+		}
+		if wait > 0 {
+			if _, err := c.Incr(context.Background(), "k"); !errors.Is(err, ErrDown) {
+				t.Fatalf("attempt %d within back-off: %v, want ErrDown (no dial)", i+1, err)
+			}
+		}
+		now = now.Add(wait + time.Millisecond)
 	}
-	if _, err := c.Incr(context.Background(), "k"); !errors.Is(err, ErrDown) {
-		t.Fatalf("second call within back-off: %v, want ErrDown (no dial)", err)
+	if c.connectTimeout != DefaultConnectTimeout || c.timeout != DefaultRequestTimeout {
+		t.Fatalf("timeouts %v / %v, want GLIDE defaults", c.connectTimeout, c.timeout)
 	}
-	now = now.Add(downBackoff + time.Millisecond)
-	if _, err := c.Incr(context.Background(), "k"); err == nil || errors.Is(err, ErrDown) {
-		t.Fatalf("after back-off: %v, want a fresh dial attempt", err)
+}
+
+// Any server answer resets the back-off to its first step.
+func TestClientBackoffResetsOnAnswer(t *testing.T) {
+	f := startFake(t, "")
+	c, _ := New("valkey://" + f.ln.Addr().String())
+	c.reconnect.Next()
+	c.reconnect.Next() // as if two failures had happened
+	if _, err := c.Incr(context.Background(), "k"); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.reconnect.Next(); got > reconnectBase {
+		t.Fatalf("after an answer the next back-off is %v, want within the first step (%v)", got, reconnectBase)
 	}
 }
 
 func TestNewRejectsBadURLs(t *testing.T) {
 	for _, u := range []string{"http://h:6379", "valkey://", "valkey://h/notadb", "::"} {
-		if _, err := New(u, 0); err == nil {
+		if _, err := New(u); err == nil {
 			t.Errorf("%q: want error", u)
 		}
 	}
-	c, err := New("rediss://user:pw@cache.example:6380/1", 0)
+	c, err := New("rediss://user:pw@cache.example:6380/1")
 	if err != nil || c.addr != "cache.example:6380" || c.user != "user" || c.password != "pw" || c.db != 1 || c.tls == nil {
 		t.Fatalf("rediss parse: %+v, %v", c, err)
 	}
@@ -186,7 +212,7 @@ func TestRealValkey(t *testing.T) {
 	if url == "" {
 		t.Skip("VALKEY_TEST_URL not set")
 	}
-	c, err := New(url, time.Second)
+	c, err := New(url)
 	if err != nil {
 		t.Fatal(err)
 	}

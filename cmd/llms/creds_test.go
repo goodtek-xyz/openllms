@@ -62,3 +62,37 @@ func TestResolveLoginAPIKey(t *testing.T) {
 		t.Fatal("expected error when no gateway key and no local key")
 	}
 }
+
+// A device without a local key asks the gateway for a key of its own; with a key it asks for nothing; --rotate-key
+// asks only to rotate.
+func TestLoginRequestBody(t *testing.T) {
+	b := loginRequestBody("gho", false, "", "laptop")
+	if b["device_key"] != true || b["device_name"] != "laptop" || b["rotate_cli_key"] != nil {
+		t.Fatalf("no local key: %v", b)
+	}
+	b = loginRequestBody("gho", false, "sk-gt-local", "laptop")
+	if _, ok := b["device_key"]; ok || b["rotate_cli_key"] != nil {
+		t.Fatalf("local key: %v", b)
+	}
+	b = loginRequestBody("gho", true, "", "laptop")
+	if b["rotate_cli_key"] != true || b["device_key"] != nil {
+		t.Fatalf("rotate: %v", b)
+	}
+}
+
+// A saved key counts only for the gateway it was saved for.
+func TestLocalKeyFor(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if k := localKeyFor("https://llms.example"); k != "" {
+		t.Fatalf("no file: %q", k)
+	}
+	if err := saveCreds(credsFile{APIBase: "https://stage.llms.example/", APIKey: "sk-gt-stage", Login: "ops"}); err != nil {
+		t.Fatal(err)
+	}
+	if k := localKeyFor("https://llms.example"); k != "" {
+		t.Fatalf("other gateway's key counted: %q", k)
+	}
+	if k := localKeyFor("https://stage.llms.example"); k != "sk-gt-stage" {
+		t.Fatalf("same gateway: %q", k)
+	}
+}

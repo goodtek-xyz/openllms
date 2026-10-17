@@ -15,7 +15,7 @@ import (
 // falls back to process-local rather than stopping the gateway; a Valkey outage is handled per call (see valkey).
 func sharedState(cfg config.Config) (ratelimit.Limiter, proxy.SessionAffinity) {
 	if cfg.ValkeyURL != "" {
-		c, err := valkey.New(cfg.ValkeyURL, 250*time.Millisecond)
+		c, err := valkey.New(cfg.ValkeyURL)
 		if err == nil {
 			slog.Info("shared state", "store", "valkey")
 			return ratelimit.NewShared(c, cfg.RateLimitPerMin, time.Minute), proxy.NewSharedAffinity(c, proxy.DefaultAffinityTTL)

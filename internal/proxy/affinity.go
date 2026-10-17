@@ -12,6 +12,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// DefaultAffinityTTL keeps a session on its account as long as the upstream can still hold its prompt cache: the
+// longest standard cache lifetime is one hour — Anthropic's optional 1-hour cache (default 5 minutes, refreshed on
+// use; https://platform.claude.com/docs/en/docs/build-with-claude/prompt-caching) and OpenAI's in-memory retention
+// "up to one hour" (30 minutes after last use for GPT-5.6 and later;
+// https://developers.openai.com/api/docs/guides/prompt-caching). Each successful request renews the entry.
 const DefaultAffinityTTL = time.Hour
 
 // Affinity maps session keys to last successful account (soft sticky).

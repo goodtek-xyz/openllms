@@ -76,6 +76,8 @@ type Engine struct {
 	unauthorized   sync.Map     // account id → first 401 seen without a refresh token; see confirmUnauthorized
 	clientRejected sync.Map     // vendor|code of client-level refresh rejections already reported
 	refreshGates   refreshGates // per-account OAuth refresh locks; the zero value is ready to use
+	inflight       inflight     // upstream calls in progress, for MetricsCollector; the zero value is ready to use
+	rateLimited    sync.Map     // account id → *rateBackoff for 429s that carry no wait; see cooldownAfter
 
 	pendingMu    sync.Mutex
 	pendingCreds map[string]secrets.CredentialJSON
@@ -431,7 +433,7 @@ func (e *Engine) dispatch(ctx context.Context, rt *store.Route, body []byte, met
 			// A reauth account already left routing until re-linked; a re-linked one must not be cooled down for the
 			// old login's failure.
 			if !res.ReauthRequired && !res.CredentialReplaced {
-				dur := router.CooldownFromHeaders(res.StatusCode, res.Header, 0)
+				dur := e.cooldownAfter(acc.ID, res)
 				_ = e.Store.SetCooldown(ctx, acc.ID, time.Now().Add(dur))
 			}
 			failovers = append(failovers, FailoverAttempt{
@@ -475,6 +477,7 @@ func (e *Engine) dispatch(ctx context.Context, rt *store.Route, body []byte, met
 				res.Stream = out
 			}
 			sel.ClearSoftFail(acc.ID)
+			e.rateLimited.Delete(acc.ID) // the 429 back-off starts over after an answer
 			// Successful chat clears probe/soft-fail cooldown so a flaky /models
 			// health check cannot keep a working OAuth seat out of the pool.
 			_ = e.Store.MarkAccountHealthy(ctx, acc.ID)
@@ -655,7 +658,7 @@ func (e *Engine) execCodexImagesOnce(ctx context.Context, acc *store.Account, bo
 	if client == nil {
 		client = &http.Client{Timeout: 0}
 	}
-	res, err := client.Do(req)
+	res, err := e.doUpstreamHTTP(client, acc, req)
 	if err != nil {
 		return &Result{StatusCode: http.StatusBadGateway, Error: err.Error(), AccountID: acc.ID, Model: model, Latency: time.Since(start)}, nil
 	}
@@ -868,7 +871,7 @@ func (e *Engine) execUpstream(ctx context.Context, acc *store.Account, body []by
 	if client == nil {
 		client = &http.Client{Timeout: 0} // stream-friendly
 	}
-	res, err := client.Do(req)
+	res, err := e.doUpstreamHTTP(client, acc, req)
 	if err != nil {
 		return &Result{StatusCode: http.StatusBadGateway, Error: err.Error(), AccountID: acc.ID, Model: model, Latency: time.Since(start)}, nil
 	}

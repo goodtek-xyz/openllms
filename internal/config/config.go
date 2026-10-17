@@ -9,7 +9,10 @@ import (
 
 // Config is runtime configuration for llms-gateway.
 type Config struct {
-	HTTPAddr    string
+	HTTPAddr string
+	// MetricsAddr serves Prometheus /metrics on its own port, kept off the public Service and Ingress (default :8082,
+	// the gateway metrics port of the hosted deployment). Empty: no metrics server.
+	MetricsAddr string
 	DatabaseURL string
 
 	BootstrapToken string
@@ -96,6 +99,7 @@ type billingUnifi struct {
 func Load() (Config, error) {
 	cfg := Config{
 		HTTPAddr:              envOr("HTTP_ADDR", ":8080"),
+		MetricsAddr:           envOr("METRICS_ADDR", ":8082"),
 		DatabaseURL:           os.Getenv("DATABASE_URL"),
 		BootstrapToken:        os.Getenv("BOOTSTRAP_TOKEN"),
 		GitHubClientID:        os.Getenv("GITHUB_CLIENT_ID"),

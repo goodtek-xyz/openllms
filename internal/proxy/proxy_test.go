@@ -984,3 +984,43 @@ func TestAnthropicMessagesOnlyUsesClaudeSeats(t *testing.T) {
 		t.Fatalf("Codex-only route: status=%d body=%s hits=%v", res.StatusCode, res.Body, hits)
 	}
 }
+
+// Through the dispatch, a 429 with Retry-After cools the account for exactly that long and the request fails over.
+func TestDispatch429UsesProviderWait(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer sk-limited" {
+			w.Header().Set("Retry-After", "30")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"type":"rate_limit_error"}}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "ok",
+			"choices": []any{map[string]any{"message": map[string]string{"role": "assistant", "content": "hi"}}},
+			"usage":   map[string]int{"prompt_tokens": 1, "completion_tokens": 1}})
+	}))
+	defer up.Close()
+	sec := memory.New()
+	idA, idB := uuid.New(), uuid.New()
+	pa := vendor.InfisicalPath(uuid.New().String(), "deepseek", "a")
+	pb := vendor.InfisicalPath(uuid.New().String(), "deepseek", "b")
+	_ = sec.Put(context.Background(), pa, vendor.SecretName, mustJSON(secrets.CredentialJSON{APIKey: "sk-limited"}))
+	_ = sec.Put(context.Background(), pb, vendor.SecretName, mustJSON(secrets.CredentialJSON{APIKey: "sk-ok"}))
+	st := &memRouteStore{accounts: []store.Account{
+		{ID: idA, Vendor: "deepseek", AuthType: "api_key", Name: "a", InfisicalPath: pa, BaseURL: up.URL + "/v1", Weight: 1, Position: 0},
+		{ID: idB, Vendor: "deepseek", AuthType: "api_key", Name: "b", InfisicalPath: pb, BaseURL: up.URL + "/v1", Weight: 1, Position: 1},
+	}, cool: map[uuid.UUID]time.Time{}}
+	eng := &proxy.Engine{Store: st, Secrets: sec, HTTP: up.Client(), Selector: router.NewSelector()}
+	before := time.Now()
+	res, err := eng.ChatCompletions(context.Background(), uuid.New(), &store.Route{ID: uuid.New(), Strategy: string(router.Sequential)},
+		[]byte(`{"model":"deepseek-chat","messages":[{"role":"user","content":"hi"}]}`), proxy.DispatchMeta{})
+	if err != nil || res.StatusCode != 200 || res.AccountID != idB {
+		t.Fatalf("err=%v status=%d account=%v", err, res.StatusCode, res.AccountID)
+	}
+	until, ok := st.cool[idA]
+	if !ok {
+		t.Fatal("limited account not cooled")
+	}
+	if got := until.Sub(before); got < 30*time.Second || got > 31*time.Second {
+		t.Fatalf("cooldown %v, want the provider's 30 s", got)
+	}
+}

@@ -48,8 +48,7 @@ func (s *SharedLimiter) AllowWithLimit(key string, limit int) bool {
 	now := s.now()
 	slot := now.UnixNano() / int64(s.window)
 	k := s.prefix + key + ":" + strconv.FormatInt(slot, 10)
-	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
-	defer cancel()
+	ctx := context.Background() // each call is bounded by the store's own request timeout (valkey.DefaultRequestTimeout)
 	n, err := s.store.Incr(ctx, k)
 	if err != nil {
 		return s.local.AllowWithLimit(key, limit)

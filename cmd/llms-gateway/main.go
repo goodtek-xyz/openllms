@@ -89,10 +89,14 @@ func run(ctx context.Context, cfg config.Config, ln net.Listener, onStarted func
 	// Deferred before the database is opened, so on an early return it runs after the database is closed; that is
 	// fine because only the start-up handler is serving then. After start-up it is called explicitly, before the
 	// database is closed, so in-flight requests finish first.
+	var metricsSrv *http.Server // set once the gateway has started, if cfg.MetricsAddr is set
 	shutdown := sync.OnceFunc(func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		_ = httpSrv.Shutdown(shutdownCtx)
+		if metricsSrv != nil {
+			_ = metricsSrv.Shutdown(shutdownCtx)
+		}
 	})
 	defer shutdown()
 
@@ -144,6 +148,20 @@ func run(ctx context.Context, cfg config.Config, ln net.Listener, onStarted func
 	prober := &health.Prober{Store: st, Secrets: secret, HTTP: &http.Client{Timeout: 8 * time.Second}}
 	if secret != nil {
 		prober.Start(refreshCtx, 2*time.Minute)
+	}
+
+	if cfg.MetricsAddr != "" {
+		mln, err := net.Listen("tcp", cfg.MetricsAddr)
+		if err != nil {
+			return startErr("metrics listen", err)
+		}
+		metricsSrv = &http.Server{Handler: metricsHandler(srv.MetricsCollector())}
+		go func() {
+			if err := metricsSrv.Serve(mln); !errors.Is(err, http.ErrServerClosed) {
+				fail(fmt.Errorf("metrics serve: %w", err))
+			}
+		}()
+		slog.Info("metrics listening", "addr", mln.Addr().String())
 	}
 
 	gate.Started(srv.Router())

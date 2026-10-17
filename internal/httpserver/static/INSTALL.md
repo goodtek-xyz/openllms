@@ -27,7 +27,7 @@ curl -fsSL https://llms.goodtek.xyz/install.md
 | OS | Linux 또는 macOS (`amd64` / `arm64`) |
 | 네트워크 | `llms.goodtek.xyz` (스크립트 + `/dist` 바이너리), 벤더 OAuth(연결 시) |
 | GitHub | `llms login`용 계정 + org가 허용한 OAuth App Device Flow |
-| 바이너리 | **권장:** 게이트웨이 `/dist` (인증 없음). GitHub Releases는 선택적 폴백. |
+| 바이너리 | **권장:** 게이트웨이 `/dist` (인증 없음, `SHA256SUMS` 검증). openllms GitHub Releases도 같은 방식으로 검증. |
 
 ---
 
@@ -54,16 +54,28 @@ export PATH="$HOME/bin:$PATH"
 ```bash
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-curl -fsSL "https://llms.goodtek.xyz/dist/llms_${OS}_${ARCH}" -o llms
+curl -fsSL "https://llms.goodtek.xyz/dist/llms_${OS}_${ARCH}" -o "llms_${OS}_${ARCH}"
+curl -fsSL "https://llms.goodtek.xyz/dist/SHA256SUMS" | grep " llms_${OS}_${ARCH}$" | shasum -a 256 -c -
+mv "llms_${OS}_${ARCH}" llms
 chmod +x llms
 sudo mv llms /usr/local/bin/llms
 ```
 
-### C. GitHub Releases 폴백 (선택)
+### C. GitHub Releases (openllms)
+
+공개 저장소 [goodtek-xyz/openllms](https://github.com/goodtek-xyz/openllms/releases)의 Release에서 받습니다. 바이너리마다
+`SHA256SUMS`와 빌드 출처 증명(artifact attestation)이 함께 올라갑니다.
 
 ```bash
 LLMS_INSTALL_SOURCE=github curl -fsSL https://llms.goodtek.xyz/install.sh | bash
+# 특정 버전
+LLMS_INSTALL_SOURCE=github LLMS_VERSION=v0.2.0 curl -fsSL https://llms.goodtek.xyz/install.sh | bash
+# 직접 받은 파일 검증
+shasum -a 256 -c SHA256SUMS --ignore-missing
+gh attestation verify llms_<os>_<arch> --repo goodtek-xyz/openllms
 ```
+
+이미 설치돼 있으면 `llms update`가 연결된 게이트웨이의 `/dist`에서 그 자리에 업데이트합니다.
 
 설치 확인:
 
@@ -196,6 +208,10 @@ llms key create laptop
 llms key revoke <key-id>
 ```
 
+다른 기기에서도 `llms login`만 하면 됩니다. 그 기기에 키가 없으면 그 기기 전용 키(`cli:<호스트 이름>`)가 새로 발급되고,
+다른 기기와 앱이 쓰는 키는 그대로 유지됩니다. 기기를 더 쓰지 않으면 `llms key list`에서 그 키를 찾아 `llms key revoke`로 폐기합니다.
+`llms login --rotate-key`는 `cli` 키를 모두 폐기하고 새로 만듭니다(그 키로 로그인한 다른 기기는 다시 로그인해야 합니다).
+
 ---
 
 ## 5. 클라이언트에 붙이기
@@ -259,10 +275,9 @@ llms status --refresh    # Codex/Claude oauth 쿼터 재조회 후 보드
 | `LLMS_DIST_BASE` | `install.sh`가 받을 게이트웨이 (기본 prod URL) |
 | `LLMS_INSTALL_SOURCE` | `dist` (기본) 또는 `github` |
 | `GITHUB_CLIENT_ID` | meta에 없을 때 device login용 |
-| `GH_TOKEN` / `GITHUB_TOKEN` | GitHub Releases 폴백 시 |
-| `LLMS_BIN_DIR` | `install.sh` 설치 경로 |
+| `LLMS_BIN_DIR` | `install.sh` 설치 경로 (기본: PATH에 이미 있는 `llms`의 위치, 없으면 `/usr/local/bin`) |
 | `LLMS_VERSION` | GitHub 폴백 시 릴리스 태그 (기본 `latest`) |
-| `LLMS_INSTALL_REPO` | 기본 `goodtek-xyz/llms` |
+| `LLMS_INSTALL_REPO` | GitHub 폴백 저장소 (기본 `goodtek-xyz/openllms`) |
 
 자격 파일: `~/.config/llms/credentials.json` (mode `0600`).
 

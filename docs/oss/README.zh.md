@@ -286,6 +286,14 @@ go build -o bin/llms ./cmd/llms
 | `steward` | 剩余 × 重置紧迫度（偏 OAuth） |
 | `parallel` | 构建/套餐启用时扇出 |
 
+预构建二进制：[GitHub Releases](https://github.com/goodtek-xyz/openllms/releases) — 每个版本都附带 `SHA256SUMS`
+和构建来源证明（`gh attestation verify llms_<os>_<arch> --repo goodtek-xyz/openllms`）。
+
+更新 CLI：`llms update` 用网关在 `/dist` 提供的构建原地替换正在运行的二进制
+（用 `/dist/SHA256SUMS` 校验，任何一步失败都保留原二进制）；如果 PATH 里先找到另一个 `llms`，会给出提示。
+`/dist` 由以 `CLI_DIST=1` 构建的网关镜像提供；没有时用 `go build -o bin/llms ./cmd/llms`
+（或 `go install github.com/goodtek-xyz/openllms/cmd/llms@latest`）重新构建。
+
 托管相关（`llms login`、`llms plan`、`llms free`、`llms upgrade`）面向 [llms.goodtek.xyz](https://llms.goodtek.xyz)。本地 OSS 引导后可忽略。
 
 ---

@@ -63,9 +63,36 @@ func resolveLoginAPIKey(out map[string]any, prevAPIKey string) (key string, unch
 		if login == "" {
 			login = "unknown"
 		}
-		return "", unchanged, fmt.Errorf("logged in as %s but no api_key returned and no local key — run: llms key create", login)
+		return "", unchanged, fmt.Errorf("logged in as %s but the gateway issued no key for this device and there is no local key — the gateway may predate device keys; update it, or copy credentials from a logged-in device", login)
 	}
 	return key, unchanged, nil
+}
+
+// loginRequestBody is the gateway login request. With no key on this device for this gateway it asks for a key of
+// the device's own (named after host); keys on other devices stay. --rotate-key asks to replace the "cli" keys.
+func loginRequestBody(accessToken string, rotate bool, localKey, host string) map[string]any {
+	body := map[string]any{"access_token": accessToken}
+	switch {
+	case rotate:
+		body["rotate_cli_key"] = true
+	case localKey == "":
+		body["device_key"] = true
+		body["device_name"] = host
+	}
+	return body
+}
+
+// localKeyFor is the key saved on this device for the gateway at base, or "" when there is none. A key saved for
+// another gateway (credentials from stage on a prod login, say) does not count.
+func localKeyFor(base string) string {
+	c, err := loadCreds()
+	if err != nil || c.APIKey == "" {
+		return ""
+	}
+	if c.APIBase != "" && strings.TrimRight(c.APIBase, "/") != strings.TrimRight(base, "/") {
+		return ""
+	}
+	return c.APIKey
 }
 
 func clearCreds() error {
@@ -396,20 +423,15 @@ func cmdLogin() *cobra.Command {
 				return err
 			}
 			fmt.Fprintln(os.Stderr, "GitHub authorized. Contacting gateway…")
-			body := map[string]any{"access_token": tok}
-			if rotateKey {
-				body["rotate_cli_key"] = true
-			}
+			prevKey := localKeyFor(base)
+			host, _ := os.Hostname()
+			body := loginRequestBody(tok, rotateKey, prevKey, host)
 			out, code, err := doJSON(ctx, http.MethodPost, "/control/v1/auth/github", body, false)
 			if err != nil {
 				return err
 			}
 			if code >= 300 {
 				return fmt.Errorf("gateway auth: %v", out)
-			}
-			prevKey := ""
-			if prev, err := loadCreds(); err == nil {
-				prevKey = prev.APIKey
 			}
 			key, unchanged, err := resolveLoginAPIKey(out, prevKey)
 			if err != nil {
@@ -422,6 +444,8 @@ func cmdLogin() *cobra.Command {
 			fmt.Printf("Logged in as %s. Credentials saved to %s\n", login, credsPath())
 			if unchanged {
 				fmt.Println("Existing CLI API key kept (re-login does not rotate sk-gt).")
+			} else if name, _ := out["key_name"].(string); name != "" {
+				fmt.Printf("New API key %q for this device stored locally (shown once by gateway); keys on other devices are unchanged.\n", name)
 			} else {
 				fmt.Println("API key stored locally (shown once by gateway).")
 			}
@@ -1367,7 +1391,7 @@ func main() {
 			maybePrintUpdateNotice(cmd.Context())
 		},
 	}
-	root.AddCommand(cmdLogin(), cmdLogout(), cmdCredentials(), cmdStatus(), cmdAdd(), cmdAccount(), cmdRoute(), cmdEnv(), cmdModels(), cmdKey(), cmdDisconnect(), cmdPlan(), cmdFree(), cmdUpgrade(), cmdVersion())
+	root.AddCommand(cmdLogin(), cmdLogout(), cmdCredentials(), cmdStatus(), cmdAdd(), cmdAccount(), cmdRoute(), cmdEnv(), cmdModels(), cmdKey(), cmdDisconnect(), cmdPlan(), cmdFree(), cmdUpgrade(), cmdVersion(), cmdSelfUpdate())
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}

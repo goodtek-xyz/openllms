@@ -286,6 +286,14 @@ go build -o bin/llms ./cmd/llms
 | `steward` | 残量 × リセット緊急度（OAuth 寄り） |
 | `parallel` | ビルド/プランで有効なときのファンアウト |
 
+ビルド済みバイナリ: [GitHub Releases](https://github.com/goodtek-xyz/openllms/releases) — 各リリースに `SHA256SUMS` と
+ビルド来歴の証明が付きます（`gh attestation verify llms_<os>_<arch> --repo goodtek-xyz/openllms`）。
+
+CLI の更新: `llms update` はゲートウェイが `/dist` で配布するビルドで、実行中のバイナリをその場で置き換えます
+（`/dist/SHA256SUMS` で検証し、失敗したら元のバイナリはそのまま）。PATH 上で別の `llms` が先に見つかる場合は知らせます。
+`/dist` は `CLI_DIST=1` でビルドしたゲートウェイイメージが提供します。ない場合は `go build -o bin/llms ./cmd/llms`
+（または `go install github.com/goodtek-xyz/openllms/cmd/llms@latest`）で再ビルドしてください。
+
 ホスト版向け（`llms login` / `llms plan` / `llms free` / `llms upgrade`）は [llms.goodtek.xyz](https://llms.goodtek.xyz) 用です。ローカル OSS ではブートストラップ後は無視して構いません。
 
 ---

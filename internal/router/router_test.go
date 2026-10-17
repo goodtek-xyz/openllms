@@ -3,6 +3,7 @@ package router_test
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -127,17 +128,59 @@ func TestExcludeAndPreferFresh(t *testing.T) {
 func TestCooldownRetryAfter(t *testing.T) {
 	h := make(http.Header)
 	h.Set("Retry-After", "120")
-	d := router.CooldownFromHeaders(429, h, 0)
-	if d != 120*time.Second {
+	if d := router.CooldownFromHeaders(503, h, 0); d != 120*time.Second {
 		t.Fatalf("got %v", d)
 	}
-	d2 := router.CooldownForStatus(429, 0)
-	if d2 != time.Second {
-		t.Fatalf("backoff0=%v", d2)
+	h.Set("Retry-After", "86400") // a day: the provider's value is used as given, no cap
+	if d := router.CooldownFromHeaders(503, h, 0); d != 24*time.Hour {
+		t.Fatalf("got %v", d)
 	}
-	d3 := router.CooldownForStatus(429, 3)
-	if d3 != 8*time.Second {
-		t.Fatalf("backoff3=%v", d3)
+}
+
+// RateLimitWait follows what the provider sent after a 429, in the documented order.
+func TestRateLimitWait(t *testing.T) {
+	now := time.Date(2026, 10, 17, 6, 0, 0, 0, time.UTC)
+	hdr := func(kv ...string) http.Header {
+		h := http.Header{}
+		for i := 0; i < len(kv); i += 2 {
+			h.Set(kv[i], kv[i+1])
+		}
+		return h
+	}
+	cases := []struct {
+		name string
+		hdr  http.Header
+		body string
+		want time.Duration
+		ok   bool
+	}{
+		{"retry-after seconds", hdr("Retry-After", "30"), "", 30 * time.Second, true},
+		{"retry-after date", hdr("Retry-After", now.Add(90*time.Second).Format(http.TimeFormat)), "", 90 * time.Second, true},
+		{"retry-after wins over reset headers", hdr("Retry-After", "5", "anthropic-ratelimit-tokens-remaining", "0",
+			"anthropic-ratelimit-tokens-reset", now.Add(time.Hour).Format(time.RFC3339)), "", 5 * time.Second, true},
+		{"anthropic: latest reset among exhausted limits", hdr(
+			"anthropic-ratelimit-requests-remaining", "0", "anthropic-ratelimit-requests-reset", now.Add(20*time.Second).Format(time.RFC3339),
+			"anthropic-ratelimit-output-tokens-remaining", "0", "anthropic-ratelimit-output-tokens-reset", now.Add(45*time.Second).Format(time.RFC3339),
+			"anthropic-ratelimit-input-tokens-remaining", "5000", "anthropic-ratelimit-input-tokens-reset", now.Add(time.Hour).Format(time.RFC3339),
+		), "", 45 * time.Second, true},
+		{"openai: longest reset among exhausted limits", hdr(
+			"x-ratelimit-remaining-requests", "0", "x-ratelimit-reset-requests", "1s",
+			"x-ratelimit-remaining-tokens", "0", "x-ratelimit-reset-tokens", "6m0s",
+			"x-ratelimit-remaining-project-tokens", "57000", "x-ratelimit-reset-project-tokens", "3h",
+		), "", 6 * time.Minute, true},
+		{"anthropic spend cap: next month 00:00 UTC", nil,
+			`{"type":"error","error":{"type":"rate_limit_error","details":{"error_code":"enforced_spend_limit_reached"}}}`,
+			time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC).Sub(now), true},
+		{"codex usage limit resets_at", nil,
+			`{"error":{"type":"usage_limit_reached","resets_at":` + strconv.FormatInt(now.Add(3*time.Hour).Unix(), 10) + `}}`,
+			3 * time.Hour, true},
+		{"nothing said", hdr("x-ratelimit-remaining-tokens", "10"), `{"error":{"type":"rate_limit_error"}}`, 0, false},
+	}
+	for _, tc := range cases {
+		got, ok := router.RateLimitWait(tc.hdr, []byte(tc.body), now)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("%s: got %v %v, want %v %v", tc.name, got, ok, tc.want, tc.ok)
+		}
 	}
 }
 

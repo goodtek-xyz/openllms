@@ -6,9 +6,16 @@ set -euo pipefail
 
 DIST_BASE="${LLMS_DIST_BASE:-https://llms.goodtek.xyz}"
 DIST_BASE="${DIST_BASE%/}"
-REPO="${LLMS_INSTALL_REPO:-goodtek-xyz/llms}"
+REPO="${LLMS_INSTALL_REPO:-goodtek-xyz/openllms}"
 VERSION="${LLMS_VERSION:-latest}"
-BIN_DIR="${LLMS_BIN_DIR:-/usr/local/bin}"
+# Install where the llms on PATH already lives, so `llms` runs the new build; else /usr/local/bin.
+if [[ -n "${LLMS_BIN_DIR:-}" ]]; then
+  BIN_DIR="$LLMS_BIN_DIR"
+elif existing="$(command -v llms 2>/dev/null)" && [[ -f "$existing" ]]; then
+  BIN_DIR="$(cd "$(dirname "$existing")" && pwd)"
+else
+  BIN_DIR=/usr/local/bin
+fi
 # Prefer gateway /dist unless LLMS_INSTALL_SOURCE=github
 SOURCE="${LLMS_INSTALL_SOURCE:-dist}"
 
@@ -28,56 +35,32 @@ asset="llms_${os}_${arch}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-download_dist() {
-  local url="${DIST_BASE}/dist/${asset}"
-  echo "Downloading ${url}" >&2
-  if ! curl -fsSL "$url" -o "$tmp/llms"; then
-    echo "Gateway dist download failed: $url" >&2
-    return 1
-  fi
-  # Reject tiny HTML/error bodies
-  if [[ ! -s "$tmp/llms" ]] || [[ "$(wc -c <"$tmp/llms")" -lt 100000 ]]; then
-    echo "Unexpected dist payload (too small); falling back if possible" >&2
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
+
+# fetch <binary url> <SHA256SUMS url>: download, then install only if SHA256SUMS lists this asset with the same hash.
+fetch() {
+  echo "Downloading $1" >&2
+  curl -fsSL "$1" -o "$tmp/llms" || { echo "Download failed: $1" >&2; return 1; }
+  curl -fsSL "$2" -o "$tmp/SHA256SUMS" || { echo "No checksums at $2 — not installing" >&2; return 1; }
+  local want got
+  want="$(awk -v a="$asset" '$2 == a || $2 == "*" a { print $1 }' "$tmp/SHA256SUMS")"
+  got="$(sha256_of "$tmp/llms")"
+  if [[ -z "$want" || "$want" != "$got" ]]; then
+    echo "Checksum mismatch for $asset (SHA256SUMS: ${want:-none}, file: $got) — not installing" >&2
     return 1
   fi
 }
 
+download_dist() {
+  fetch "${DIST_BASE}/dist/${asset}" "${DIST_BASE}/dist/SHA256SUMS"
+}
+
 download_github() {
-  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    echo "Downloading ${asset} via gh (${VERSION})" >&2
-    if [[ "$VERSION" == "latest" ]]; then
-      gh release download -R "$REPO" -p "$asset" -D "$tmp"
-    else
-      gh release download -R "$REPO" "$VERSION" -p "$asset" -D "$tmp"
-    fi
-    mv "$tmp/$asset" "$tmp/llms"
-    return
-  fi
-  local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
-  local url api
-  if [[ "$VERSION" == "latest" ]]; then
-    api="https://api.github.com/repos/${REPO}/releases/latest"
-  else
-    api="https://api.github.com/repos/${REPO}/releases/tags/${VERSION}"
-  fi
-  if [[ -n "$token" ]]; then
-    echo "Downloading ${asset} via GitHub API (${VERSION})" >&2
-    url=$(curl -fsSL -H "Authorization: Bearer ${token}" -H "Accept: application/vnd.github+json" "$api" \
-      | ASSET="$asset" python3 -c 'import os,sys,json; d=json.load(sys.stdin); name=os.environ["ASSET"]; print(next(a["url"] for a in d.get("assets",[]) if a["name"]==name))')
-    curl -fsSL -H "Authorization: Bearer ${token}" -H "Accept: application/octet-stream" "$url" -o "$tmp/llms"
-  else
-    if [[ "$VERSION" == "latest" ]]; then
-      url="https://github.com/${REPO}/releases/latest/download/${asset}"
-    else
-      url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
-    fi
-    echo "Downloading $url" >&2
-    if ! curl -fsSL "$url" -o "$tmp/llms"; then
-      echo "Download failed. Try: curl -fsSL ${DIST_BASE}/install.sh | bash" >&2
-      echo "Or set GH_TOKEN / run: gh auth login" >&2
-      exit 1
-    fi
-  fi
+  local rel="https://github.com/${REPO}/releases"
+  if [[ "$VERSION" == "latest" ]]; then rel="$rel/latest/download"; else rel="$rel/download/$VERSION"; fi
+  fetch "$rel/$asset" "$rel/SHA256SUMS" || exit 1
 }
 
 if [[ "$SOURCE" == "github" ]]; then
@@ -95,8 +78,13 @@ else
   sudo install -m 0755 "$tmp/llms" "$BIN_DIR/llms"
 fi
 echo "Installed $BIN_DIR/llms"
-if command -v "$BIN_DIR/llms" >/dev/null 2>&1 || [[ -x "$BIN_DIR/llms" ]]; then
-  "$BIN_DIR/llms" version 2>/dev/null || true
+"$BIN_DIR/llms" version 2>/dev/null || true
+hash -r 2>/dev/null || true
+onpath="$(command -v llms 2>/dev/null || true)"
+if [[ -n "$onpath" && "$(cd "$(dirname "$onpath")" && pwd)/llms" != "$BIN_DIR/llms" ]]; then
+  echo "Note: \`llms\` on your PATH is $onpath, not $BIN_DIR/llms — remove the other one or put $BIN_DIR earlier in PATH." >&2
+elif [[ -z "$onpath" ]]; then
+  echo "Note: $BIN_DIR is not on your PATH." >&2
 fi
 echo "Default API base: ${DIST_BASE} (override with LLMS_API_BASE)"
 echo "Next: llms login"

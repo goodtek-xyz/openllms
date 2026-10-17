@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/goodtek-xyz/openllms/internal/backoff"
 )
 
 // ErrNil is the answer to GET for a missing key.
@@ -25,24 +27,40 @@ var ErrNil = errors.New("valkey: nil")
 // is unreachable).
 var ErrDown = errors.New("valkey: unavailable (backing off)")
 
+// Defaults of the official Valkey client, GLIDE: request timeout 250 ms, connection timeout 2000 ms
+// (https://glide.valkey.io/how-to/connections/timeouts-and-reconnect-strategy/; glide-core/src/client/mod.rs
+// DEFAULT_RESPONSE_TIMEOUT).
 const (
-	maxIdle     = 8
-	downBackoff = 5 * time.Second
+	DefaultRequestTimeout = 250 * time.Millisecond
+	DefaultConnectTimeout = 2000 * time.Millisecond
 )
+
+// After a failed call the client waits before trying again, like GLIDE's default reconnect strategy: delays grow as
+// factor·2^(k+1) ms with factor 100 over 5 retries — 200 ms up to 3200 ms — then stay at the last one
+// (valkey-io/valkey-glide glide-core/redis-rs/redis/src/retry_strategies.rs @ 59aabaf34f: EXPONENT_BASE 2, FACTOR 100,
+// NUMBER_OF_RETRIES 5). The jitter is full jitter (internal/backoff), like every retry loop here.
+const (
+	reconnectBase = 200 * time.Millisecond
+	reconnectCap  = 3200 * time.Millisecond
+)
+
+const maxIdle = 8
 
 // Client is safe for concurrent use. Connections are pooled (up to maxIdle idle) and dialed on demand.
 type Client struct {
-	addr     string
-	user     string
-	password string
-	db       int
-	tls      *tls.Config
-	timeout  time.Duration // dial and per-call I/O
+	addr           string
+	user           string
+	password       string
+	db             int
+	tls            *tls.Config
+	timeout        time.Duration // per-call I/O (DefaultRequestTimeout)
+	connectTimeout time.Duration // dial, TLS handshake, AUTH / SELECT (DefaultConnectTimeout)
 
 	idle chan *conn
 
 	mu        sync.Mutex
 	downUntil time.Time
+	reconnect backoff.Backoff // grows while calls keep failing; reset by any answer
 	now       func() time.Time
 }
 
@@ -51,16 +69,19 @@ type conn struct {
 	r  *bufio.Reader
 }
 
-// New parses valkey://, valkeys://, redis:// or rediss:// URLs: [user[:password]@]host[:port][/db]. timeout bounds the
-// dial and each call (default 250 ms).
-func New(rawURL string, timeout time.Duration) (*Client, error) {
+// New parses valkey://, valkeys://, redis:// or rediss:// URLs: [user[:password]@]host[:port][/db]. Calls use
+// DefaultRequestTimeout, connections DefaultConnectTimeout.
+func New(rawURL string) (*Client, error) {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
 		return nil, fmt.Errorf("valkey url: %w", err)
 	}
-	c := &Client{timeout: timeout, idle: make(chan *conn, maxIdle), now: time.Now}
-	if c.timeout <= 0 {
-		c.timeout = 250 * time.Millisecond
+	c := &Client{
+		timeout:        DefaultRequestTimeout,
+		connectTimeout: DefaultConnectTimeout,
+		idle:           make(chan *conn, maxIdle),
+		reconnect:      backoff.Backoff{Base: reconnectBase, Cap: reconnectCap},
+		now:            time.Now,
 	}
 	switch u.Scheme {
 	case "valkey", "redis":
@@ -162,9 +183,11 @@ func (c *Client) do(ctx context.Context, args ...string) (any, error) {
 	switch {
 	case err == nil:
 		c.put(cn)
+		c.markUp()
 		return v, nil
 	case errors.As(err, &se):
 		c.put(cn) // the server answered; the connection is fine
+		c.markUp()
 		return nil, err
 	default:
 		_ = cn.nc.Close()
@@ -175,7 +198,13 @@ func (c *Client) do(ctx context.Context, args ...string) (any, error) {
 
 func (c *Client) markDown() {
 	c.mu.Lock()
-	c.downUntil = c.now().Add(downBackoff)
+	c.downUntil = c.now().Add(c.reconnect.Next())
+	c.mu.Unlock()
+}
+
+func (c *Client) markUp() {
+	c.mu.Lock()
+	c.reconnect = backoff.Backoff{Base: reconnectBase, Cap: reconnectCap}
 	c.mu.Unlock()
 }
 
@@ -185,7 +214,7 @@ func (c *Client) get(ctx context.Context) (*conn, error) {
 		return cn, nil
 	default:
 	}
-	dctx, cancel := context.WithTimeout(ctx, c.timeout)
+	dctx, cancel := context.WithTimeout(ctx, c.connectTimeout)
 	defer cancel()
 	var d net.Dialer
 	nc, err := d.DialContext(dctx, "tcp", c.addr)
@@ -206,13 +235,13 @@ func (c *Client) get(ctx context.Context) (*conn, error) {
 		if c.user != "" {
 			args = []string{"AUTH", c.user, c.password}
 		}
-		if _, err := cn.call(ctx, c.timeout, args...); err != nil {
+		if _, err := cn.call(ctx, c.connectTimeout, args...); err != nil {
 			_ = nc.Close()
 			return nil, fmt.Errorf("valkey auth: %w", err)
 		}
 	}
 	if c.db != 0 {
-		if _, err := cn.call(ctx, c.timeout, "SELECT", strconv.Itoa(c.db)); err != nil {
+		if _, err := cn.call(ctx, c.connectTimeout, "SELECT", strconv.Itoa(c.db)); err != nil {
 			_ = nc.Close()
 			return nil, fmt.Errorf("valkey select: %w", err)
 		}

@@ -1,0 +1,23 @@
+# gitleaks config for the openllms tree: scripts/oss-leak-check.sh runs it on every export and publish, and the export
+# ships it as openllms `.gitleaks.toml`, which the public release workflow scans the full history with.
+# Default rules, plus one allowlist: the documented local-only example tokens, only as those exact values (secret
+# match) AND only in the quickstart docs and the local compose files that document them. Anything else that looks like
+# a secret fails.
+title = "openllms"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "documented local example tokens in the quickstart docs and local compose files"
+condition = "AND"
+regexTarget = "secret"
+regexes = [
+  '''^local-dev-bootstrap$''',
+  '''^dev-bootstrap-token$''',
+]
+paths = [
+  '''(^|/)README(\.(ko|ja|zh))?\.md$''',
+  '''(^|/)docs/oss/README(\.(ko|ja|zh))?\.md$''',
+  '''(^|/)deploy/oss/(README\.md|\.env\.example|docker-compose\.yml)$''',
+]

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"io"
 	"net/http"
 	"time"
@@ -37,6 +38,8 @@ type Server struct {
 	user          *userauth.Manager
 	mailer        Mailer
 	vendorPending *vendorPendingStore
+
+	githubUser func(ctx context.Context, accessToken string) (*githubauth.User, error) // nil: githubauth.FetchUser
 }
 
 func (s *Server) Router() http.Handler {
@@ -266,12 +269,18 @@ func (s *Server) handleGitHubAuth(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		AccessToken  string `json:"access_token"`
 		RotateCLIKey bool   `json:"rotate_cli_key"`
+		DeviceKey    bool   `json:"device_key"`  // the device has no local key for this gateway
+		DeviceName   string `json:"device_name"` // its host name, for the key name
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.AccessToken == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "access_token required"})
 		return
 	}
-	u, err := githubauth.FetchUser(r.Context(), body.AccessToken)
+	fetch := s.githubUser
+	if fetch == nil {
+		fetch = githubauth.FetchUser
+	}
+	u, err := fetch(r.Context(), body.AccessToken)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "github_user_failed", "detail": err.Error()})
 		return
@@ -285,12 +294,15 @@ func (s *Server) handleGitHubAuth(w http.ResponseWriter, r *http.Request) {
 	if created {
 		go s.notifySignup(context.Background(), u.Login, ghID, projectID.String())
 	}
-	if !created && body.RotateCLIKey {
+	plan := planLoginKey(created, key != "", body.RotateCLIKey, body.DeviceKey, body.DeviceName)
+	if plan.revokeCLI {
 		if _, err := s.store.RevokeKeysByName(r.Context(), projectID, "cli"); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
 		}
-		key, err = s.store.CreateKey(r.Context(), projectID, "cli", nil)
+	}
+	if plan.mintName != "" {
+		key, err = s.store.CreateKey(r.Context(), projectID, plan.mintName, nil)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
@@ -304,9 +316,12 @@ func (s *Server) handleGitHubAuth(w http.ResponseWriter, r *http.Request) {
 	if key != "" {
 		out["api_key"] = key
 		out["warning"] = "store api_key now; it will not be shown again"
+		if plan.mintName != "" {
+			out["key_name"] = plan.mintName
+		}
 	} else {
 		out["api_key_unchanged"] = true
-		out["hint"] = "existing cli key kept; local credentials still work — use llms login --rotate-key or llms key create to mint a new key"
+		out["hint"] = "existing key kept; local credentials still work — a device without a local key gets its own key on llms login; llms login --rotate-key replaces the cli keys"
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -436,6 +451,9 @@ func (s *Server) StartQuotaRefresh(ctx context.Context, every time.Duration) {
 		}
 	}()
 }
+
+// MetricsCollector exposes the proxy's in-flight upstream calls for the /metrics endpoint.
+func (s *Server) MetricsCollector() prometheus.Collector { return s.proxy.MetricsCollector() }
 
 // quotaRefresher reads provider usage; its answers also feed the proxy's re-link detection.
 func (s *Server) quotaRefresher() *quota.Refresher {

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"math"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -507,15 +506,14 @@ func IsSuccessStatus(code int) bool {
 	return code >= 200 && code < 300
 }
 
-// CooldownForStatus returns hard-cooldown duration. backoffLevel increases for repeated 429s (0-based).
+// CooldownForStatus returns the hard cooldown for a failed status without a provider-given wait. 429 is not decided
+// here: the proxy uses the provider's wait (RateLimitWait) or its per-account back-off (proxy.cooldownAfter).
 func CooldownForStatus(httpStatus int, backoffLevel int) time.Duration {
 	switch httpStatus {
 	case 401:
 		return 5 * time.Minute
 	case 402, 403:
 		return 30 * time.Minute
-	case 429:
-		return ExponentialBackoff(backoffLevel)
 	case 500, 502, 504:
 		return 10 * time.Second
 	case 503:
@@ -528,44 +526,12 @@ func CooldownForStatus(httpStatus int, backoffLevel int) time.Duration {
 	}
 }
 
-func ExponentialBackoff(level int) time.Duration {
-	if level < 0 {
-		level = 0
-	}
-	d := time.Duration(math.Pow(2, float64(level))) * time.Second
-	if d > 2*time.Minute {
-		d = 2 * time.Minute
-	}
-	return d
-}
-
-// CooldownFromHeaders prefers Retry-After (seconds or HTTP date); else status defaults.
+// CooldownFromHeaders prefers the provider's Retry-After (RFC 9110 §10.2.3, used as given); else status defaults.
 func CooldownFromHeaders(status int, hdr http.Header, backoffLevel int) time.Duration {
 	if hdr != nil {
-		if ra := strings.TrimSpace(hdr.Get("Retry-After")); ra != "" {
-			if secs, err := strconv.Atoi(ra); err == nil && secs >= 0 {
-				d := time.Duration(secs) * time.Second
-				if d < time.Second {
-					d = time.Second
-				}
-				if d > 2*time.Hour {
-					d = 2 * time.Hour
-				}
-				return d
-			}
-			if t, err := http.ParseTime(ra); err == nil {
-				d := time.Until(t)
-				if d < time.Second {
-					d = time.Second
-				}
-				if d > 2*time.Hour {
-					d = 2 * time.Hour
-				}
-				return d
-			}
+		if d, ok := RetryAfter(hdr, time.Now()); ok {
+			return d
 		}
 	}
 	return CooldownForStatus(status, backoffLevel)
 }
-
-const DefaultCooldown = 30 * time.Second

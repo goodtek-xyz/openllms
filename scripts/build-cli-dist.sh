@@ -79,6 +79,12 @@ else
     '
 fi
 
+# Checksums in `sha256sum` format; install.sh and `llms update` install a binary only when it matches.
+(
+  cd "$OUT"
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum llms_*_*; else shasum -a 256 llms_*_*; fi
+) >"$OUT/SHA256SUMS.tmp"
+mv "$OUT/SHA256SUMS.tmp" "$OUT/SHA256SUMS"
 printf '%s\n' "$VERSION" >"$OUT/VERSION"
 printf '%s\n' "$SHA" >"$OUT/COMMIT"
 # Keep install scripts alongside binaries for operators copying the tree.

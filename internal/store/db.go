@@ -11,6 +11,7 @@ import (
 	"github.com/goodtek-xyz/openllms/internal/backoff"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -208,6 +209,7 @@ func (p *peekedRows) FieldDescriptions() []pgconn.FieldDescription { return p.ro
 func (p *peekedRows) Values() ([]any, error)                       { return p.rows.Values() }
 func (p *peekedRows) RawValues() [][]byte                          { return p.rows.RawValues() }
 func (p *peekedRows) Conn() *pgx.Conn                              { return p.rows.Conn() }
+func (p *peekedRows) TypeMap() *pgtype.Map                         { return p.rows.TypeMap() }
 
 // emptyRows is a finished result with no rows.
 type emptyRows struct{}
@@ -221,7 +223,10 @@ func (emptyRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
 func (emptyRows) Values() ([]any, error)                       { return nil, nil }
 func (emptyRows) RawValues() [][]byte                          { return nil }
 func (emptyRows) Conn() *pgx.Conn                              { return nil }
-func (d *pgxDB) Close()                                        { d.pool.Close() }
+
+// TypeMap is nil: pgx allows that for a Rows that carries no values (pgx.Rows.TypeMap).
+func (emptyRows) TypeMap() *pgtype.Map { return nil }
+func (d *pgxDB) Close()                { d.pool.Close() }
 
 type pgxTx struct{ tx pgx.Tx }
 

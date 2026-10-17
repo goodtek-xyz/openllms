@@ -30,7 +30,7 @@ func New(st *store.Store, cfg config.Config, secret secrets.Client) *Server {
 		cfg:           cfg,
 		store:         st,
 		secret:        secret,
-		proxy:         &proxy.Engine{Store: st, Secrets: secret, HTTP: &http.Client{Timeout: 120 * time.Second}, Affinity: affinity},
+		proxy:         &proxy.Engine{Store: st, Secrets: secret, HTTP: proxy.NewUpstreamClient(), Affinity: affinity},
 		limit:         limiter,
 		models:        modelcatalog.New(secret, &http.Client{Timeout: 12 * time.Second}, modelcatalog.DefaultCacheTTL),
 		admin:         disabledAdmin{},
