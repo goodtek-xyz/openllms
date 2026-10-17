@@ -2,6 +2,8 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/goodtek-xyz/openllms?style=social)](https://github.com/goodtek-xyz/openllms)
 
+> 이 저장소는 상위 소스에서 게시만 하는 미러입니다. PR은 여기서 리뷰한 뒤 작성자 표기를 남겨 상위로 가져갑니다 — [CONTRIBUTING.md](CONTRIBUTING.md) 참고.
+
 이미 내고 있는 ChatGPT / Claude(그리고 Codex) 좌석을 **OpenAI 호환 API 하나**로 묶습니다.  
 남은 한도를 보고 트래픽을 나눠서, 한쪽만 태우고 나머지는 노는 일을 줄입니다.
 

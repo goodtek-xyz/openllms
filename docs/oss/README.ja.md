@@ -2,6 +2,8 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/goodtek-xyz/openllms?style=social)](https://github.com/goodtek-xyz/openllms)
 
+> このリポジトリは上流ソースから公開専用のミラーです。PR はここでレビューし、作者を記録したうえで上流に取り込みます — [CONTRIBUTING.md](CONTRIBUTING.md) を参照。
+
 すでに払っている ChatGPT / Claude（および Codex）の席を、**OpenAI 互換 API ひとつ**にまとめます。  
 残りの枠を見てトラフィックを振り分け、片方だけ燃え尽きて他が遊んでいる状態を減らします。
 

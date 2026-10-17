@@ -2,6 +2,8 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/goodtek-xyz/openllms?style=social)](https://github.com/goodtek-xyz/openllms)
 
+> 本仓库是上游源码的发布镜像；PR 在这里审阅后连同作者署名一起合入上游 — 见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
 把你已经在付的 ChatGPT / Claude（以及 Codex）席位，收成 **一个 OpenAI 兼容 API**。  
 按剩余额度分流量，避免一边烧光、一边闲着。
 

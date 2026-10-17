@@ -2,6 +2,8 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/goodtek-xyz/openllms?style=social)](https://github.com/goodtek-xyz/openllms)
 
+> This repository is a publish-only mirror of the upstream source; pull requests are reviewed here and carried upstream with credit — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 Turn ChatGPT / Claude (and Codex) seats you already pay for into **one OpenAI-compatible API**.  
 The gateway watches remaining quota and spreads traffic so one login doesn’t get burned while others sit idle.
 

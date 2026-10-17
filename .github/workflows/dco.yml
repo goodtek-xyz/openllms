@@ -1,0 +1,40 @@
+# DCO: every commit of a pull request needs a `Signed-off-by:` line with the commit author's email
+# (Developer Certificate of Origin 1.1, https://developercertificate.org/; see CONTRIBUTING.md).
+#
+# Read-only by construction: `pull_request` (never pull_request_target), no token permissions, no third-party
+# actions. The commits are fetched anonymously from this public repository's pull request ref.
+name: dco
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  signoff:
+    name: Signed-off-by
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Check every commit
+        run: |
+          set -euo pipefail
+          git init -q dco && cd dco
+          git fetch -q --no-tags "https://github.com/${REPO}.git" "${BASE_SHA}" "+refs/pull/${PR}/head:refs/pr"
+          fail=0
+          for c in $(git rev-list --no-merges "${BASE_SHA}..${HEAD_SHA}"); do
+            author="$(git log -1 --format='%ae' "$c" | tr '[:upper:]' '[:lower:]')"
+            if git log -1 --format='%(trailers:key=Signed-off-by,valueonly)' "$c" \
+              | tr '[:upper:]' '[:lower:]' | grep -qF "<${author}>"; then
+              echo "ok      $(git log -1 --format='%h %s' "$c")"
+            else
+              echo "::error::$(git log -1 --format='%h %s' "$c") has no Signed-off-by for its author <${author}> — see CONTRIBUTING.md"
+              fail=1
+            fi
+          done
+          exit "$fail"
